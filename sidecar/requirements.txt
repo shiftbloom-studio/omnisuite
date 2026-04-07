@@ -1,0 +1,6 @@
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+torch==2.8.0
+torchaudio==2.8.0
+huggingface_hub>=0.25.0
+omnivoice>=0.1.0

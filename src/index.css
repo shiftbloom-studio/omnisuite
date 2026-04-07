@@ -1,0 +1,20 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+@import "tailwindcss";
+
+body {
+  background-color: #0a0a0a;
+  color: #e0e0e0;
+  font-family: "JetBrains Mono", monospace;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  border-radius: 0 !important;
+}
+
+::selection {
+  background-color: #ff3d00;
+  color: #0a0a0a;
+}
