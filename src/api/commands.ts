@@ -3,38 +3,65 @@ import type { AppSettings } from "../stores/appStore";
 import type { Voice } from "../stores/voiceStore";
 import type { HistoryEntry } from "../stores/historyStore";
 
-// Sidecar management
-export async function getSidecarStatus(): Promise<string> {
-  return invoke("get_sidecar_status");
+// Engine management
+export async function getEngineStatus(): Promise<{
+  state: string;
+  progress: number;
+  error: string | null;
+}> {
+  return invoke("get_engine_status");
 }
 
-export async function restartSidecar(): Promise<void> {
-  return invoke("restart_sidecar");
+export async function isModelInstalled(): Promise<boolean> {
+  return invoke("is_model_installed");
+}
+
+export async function installModel(): Promise<void> {
+  return invoke("install_model");
+}
+
+export async function reloadEngine(): Promise<void> {
+  return invoke("reload_engine");
 }
 
 // Speech generation
 export async function generateSpeech(params: {
-  text: string;
   voiceId: string;
+  text: string;
+  language?: string;
   speed?: number;
-  pitch?: number;
-}): Promise<{ filePath: string; duration: number }> {
-  return invoke("generate_speech", params);
+  numSteps?: number;
+}): Promise<{ id: string; audio_path: string; duration_ms: number | null }> {
+  return invoke("generate_speech", {
+    voiceId: params.voiceId,
+    text: params.text,
+    language: params.language,
+    speed: params.speed,
+    numSteps: params.numSteps,
+  });
 }
 
 // Voice cloning
 export async function cloneVoiceTest(params: {
-  audioPath: string;
+  refAudio: number[];
+  refText: string;
   text: string;
-}): Promise<{ filePath: string; duration: number }> {
-  return invoke("clone_voice_test", params);
+  language?: string;
+}): Promise<number[]> {
+  return invoke("clone_voice_test", {
+    refAudio: params.refAudio,
+    refText: params.refText,
+    text: params.text,
+    language: params.language,
+  });
 }
 
 export async function saveClonedVoice(params: {
-  audioPath: string;
   name: string;
-  language: string;
   tags: string[];
+  refAudio: number[];
+  refText: string;
+  language: string;
 }): Promise<Voice> {
   return invoke("save_cloned_voice", params);
 }
@@ -48,17 +75,17 @@ export async function deleteVoice(id: string): Promise<void> {
   return invoke("delete_voice", { id });
 }
 
-export async function exportVoice(id: string): Promise<string> {
+export async function exportVoice(id: string): Promise<number[]> {
   return invoke("export_voice", { id });
 }
 
-export async function importVoice(filePath: string): Promise<Voice> {
-  return invoke("import_voice", { filePath });
+export async function importVoice(zipBytes: number[]): Promise<Voice> {
+  return invoke("import_voice", { zipBytes });
 }
 
 // History
 export async function listHistory(): Promise<HistoryEntry[]> {
-  return invoke("list_history");
+  return invoke("list_history", {});
 }
 
 export async function deleteHistoryEntry(id: string): Promise<void> {
@@ -76,6 +103,6 @@ export async function getSettings(): Promise<AppSettings> {
 
 export async function updateSettings(
   settings: Partial<AppSettings>,
-): Promise<AppSettings> {
+): Promise<void> {
   return invoke("update_settings", { settings });
 }

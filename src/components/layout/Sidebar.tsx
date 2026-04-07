@@ -4,7 +4,6 @@ const navItems = [
   { to: "/", label: "SYNTHESIZE" },
   { to: "/clone", label: "CLONE" },
   { to: "/library", label: "VOICES" },
-  { to: "/design", label: "DESIGN" },
   { to: "/settings", label: "SETTINGS" },
 ];
 
