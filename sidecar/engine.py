@@ -25,7 +25,7 @@ class OmniVoiceEngine:
         if torch.cuda.is_available():
             self.gpu_available = True
             self.gpu_name = torch.cuda.get_device_name(0)
-            self.vram_total = torch.cuda.get_device_properties(0).total_mem
+            self.vram_total = torch.cuda.get_device_properties(0).total_memory
             self.vram_used = torch.cuda.memory_allocated(0)
         else:
             self.gpu_available = False
