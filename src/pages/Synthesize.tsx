@@ -128,19 +128,19 @@ function Synthesize() {
       });
 
       // Convert file path to a URL the webview can load
-      const url = `asset://localhost/${result.filePath.replace(/\\/g, '/')}`;
+      const url = `asset://localhost/${result.audio_path.replace(/\\/g, '/')}`;
       setAudioUrl(url);
-      setAudioFilePath(result.filePath);
+      setAudioFilePath(result.audio_path);
 
       // Add to history
       const entry: HistoryEntry = {
-        id: crypto.randomUUID(),
+        id: result.id,
         text: text.trim(),
         voiceId: activeVoice.id,
         voiceName: activeVoice.name,
         createdAt: new Date().toISOString(),
-        duration: result.duration,
-        filePath: result.filePath,
+        duration: result.duration_ms ?? 0,
+        filePath: result.audio_path,
       };
       addEntry(entry);
     } catch (err) {

@@ -48,12 +48,18 @@ function CloneVoice() {
   const hasAudio = audioFile !== null || audioBlob !== null;
   const audioName = audioFile?.name ?? (audioBlob ? "Recording.webm" : null);
 
-  const getAudioPath = useCallback((): string => {
-    // In a Tauri app, the file path would be resolved from the File object.
-    // For files, use webkitRelativePath or name; for blobs, use a temp path.
-    if (audioFile) return audioFile.name;
-    return "recording.webm";
-  }, [audioFile]);
+  const getAudioBytes = useCallback(async (): Promise<number[]> => {
+    let blob: Blob;
+    if (audioFile) {
+      blob = audioFile;
+    } else if (audioBlob) {
+      blob = audioBlob;
+    } else {
+      throw new Error("No audio available");
+    }
+    const buffer = await blob.arrayBuffer();
+    return Array.from(new Uint8Array(buffer));
+  }, [audioFile, audioBlob]);
 
   const canAdvance = (): boolean => {
     switch (currentStep) {
@@ -103,11 +109,16 @@ function CloneVoice() {
     setError(null);
     setTestAudioUrl(null);
     try {
-      const result = await cloneVoiceTest({
-        audioPath: getAudioPath(),
+      const audioBytes = await getAudioBytes();
+      const wavBytes = await cloneVoiceTest({
+        refAudio: audioBytes,
+        refText: transcript,
         text: testText,
+        language,
       });
-      setTestAudioUrl(result.filePath);
+      // Convert returned bytes to playable URL
+      const blob = new Blob([new Uint8Array(wavBytes)], { type: "audio/wav" });
+      setTestAudioUrl(URL.createObjectURL(blob));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Voice test failed.");
     } finally {
@@ -119,11 +130,13 @@ function CloneVoice() {
     setSaving(true);
     setError(null);
     try {
+      const audioBytes = await getAudioBytes();
       const voice = await saveClonedVoice({
-        audioPath: getAudioPath(),
         name: voiceName.trim(),
-        language,
         tags,
+        refAudio: audioBytes,
+        refText: transcript,
+        language,
       });
       addVoice(voice);
       navigate("/library");

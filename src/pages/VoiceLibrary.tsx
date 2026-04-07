@@ -117,7 +117,9 @@ function VoiceLibrary() {
       if (!file) return;
       setError(null);
       try {
-        const voice = await importVoice(file.name);
+        const buffer = await file.arrayBuffer();
+        const bytes = Array.from(new Uint8Array(buffer));
+        const voice = await importVoice(bytes);
         addVoice(voice);
       } catch (err: unknown) {
         setError(

@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { Button, Badge, ProgressBar } from "../components/ui";
+import { Button, Badge } from "../components/ui";
 import { useAppStore } from "../stores/appStore";
 import {
-  getSidecarStatus,
-  restartSidecar,
+  reloadEngine,
   getSettings,
   updateSettings,
   clearHistory,
 } from "../api/commands";
+import type { AppSettings } from "../stores/appStore";
 
 function Section({
   title,
@@ -47,34 +47,23 @@ function Row({
 }
 
 export default function Settings() {
-  const { sidecarStatus } = useAppStore();
-  const [health, setHealth] = useState<Record<string, unknown> | null>(null);
+  const engineState = useAppStore((s) => s.engineState);
   const [restarting, setRestarting] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [settings, setLocalSettings] = useState({
+  const [settings, setLocalSettings] = useState<AppSettings>({
     outputDir: "",
     retentionDays: 30,
     exportFormat: "wav",
   });
 
   useEffect(() => {
-    loadHealth();
     loadSettings();
   }, []);
-
-  const loadHealth = async () => {
-    try {
-      const status = await getSidecarStatus();
-      setHealth(status as Record<string, unknown>);
-    } catch {
-      /* ignore */
-    }
-  };
 
   const loadSettings = async () => {
     try {
       const s = await getSettings();
-      setLocalSettings(s as typeof settings);
+      setLocalSettings(s);
     } catch {
       /* ignore */
     }
@@ -83,8 +72,7 @@ export default function Settings() {
   const handleRestart = async () => {
     setRestarting(true);
     try {
-      await restartSidecar();
-      await loadHealth();
+      await reloadEngine();
     } catch {
       /* ignore */
     } finally {
@@ -105,7 +93,7 @@ export default function Settings() {
   };
 
   const handleRetentionChange = async (days: number) => {
-    const updated = { ...settings, retentionDays: days };
+    const updated: AppSettings = { ...settings, retentionDays: days };
     setLocalSettings(updated);
     try {
       await updateSettings(updated);
@@ -114,8 +102,8 @@ export default function Settings() {
     }
   };
 
-  const handleFormatChange = async (format: string) => {
-    const updated = { ...settings, exportFormat: format };
+  const handleFormatChange = async (format: "wav" | "mp3" | "flac") => {
+    const updated: AppSettings = { ...settings, exportFormat: format };
     setLocalSettings(updated);
     try {
       await updateSettings(updated);
@@ -123,24 +111,6 @@ export default function Settings() {
       /* ignore */
     }
   };
-
-  const healthData = (health as Record<string, Record<string, unknown>>)
-    ?.health;
-  const gpuName = (healthData?.gpu_name as string) || "Not detected";
-  const vramTotal = healthData?.vram_total
-    ? `${((healthData.vram_total as number) / 1024 / 1024 / 1024).toFixed(1)} GB`
-    : "—";
-  const vramUsed = healthData?.vram_used
-    ? `${((healthData.vram_used as number) / 1024 / 1024 / 1024).toFixed(1)} GB`
-    : "—";
-  const vramPercent =
-    healthData?.vram_total && healthData?.vram_used
-      ? Math.round(
-          ((healthData.vram_used as number) /
-            (healthData.vram_total as number)) *
-            100,
-        )
-      : 0;
 
   return (
     <div className="p-6 max-w-[700px]">
@@ -151,34 +121,17 @@ export default function Settings() {
         <div className="flex-1 h-[1px] bg-[#1a1a1a]" />
       </div>
 
-      {/* Hardware */}
-      <Section title="HARDWARE">
-        <Row label="GPU">{gpuName}</Row>
-        <Row label="VRAM">
-          {vramUsed} / {vramTotal}
-        </Row>
-        <div className="py-2">
-          <ProgressBar progress={vramPercent} size="sm" />
-        </div>
-        <Row label="INFERENCE">
-          <Badge
-            variant={
-              healthData?.gpu_available ? "success" : "muted"
-            }
-          >
-            {healthData?.gpu_available ? "GPU" : "CPU"}
-          </Badge>
-        </Row>
-      </Section>
-
       {/* Audio */}
       <Section title="AUDIO">
         <Row label="SAMPLE RATE">
           <span className="text-[#888]">24000 Hz (native)</span>
         </Row>
+        <Row label="INFERENCE">
+          <Badge variant="muted">CPU</Badge>
+        </Row>
         <Row label="EXPORT FORMAT">
           <div className="flex gap-1">
-            {["wav", "mp3"].map((fmt) => (
+            {(["wav", "mp3"] as const).map((fmt) => (
               <button
                 key={fmt}
                 onClick={() => handleFormatChange(fmt)}
@@ -230,22 +183,23 @@ export default function Settings() {
         </div>
       </Section>
 
-      {/* Sidecar */}
+      {/* Engine */}
       <Section title="ENGINE">
         <Row label="STATUS">
           <Badge
             variant={
-              sidecarStatus === "ready"
+              engineState === "ready"
                 ? "success"
-                : sidecarStatus === "error"
+                : engineState === "error"
                   ? "default"
                   : "muted"
             }
           >
-            {sidecarStatus.toUpperCase()}
+            {engineState.toUpperCase().replace("_", " ")}
           </Badge>
         </Row>
         <Row label="MODEL">k2-fsa/OmniVoice</Row>
+        <Row label="DEVICE">CPU</Row>
         <div className="pt-2">
           <Button
             variant="secondary"
@@ -253,7 +207,7 @@ export default function Settings() {
             onClick={handleRestart}
             loading={restarting}
           >
-            RESTART ENGINE
+            RELOAD ENGINE
           </Button>
         </div>
       </Section>
