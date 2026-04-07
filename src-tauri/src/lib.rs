@@ -47,6 +47,17 @@ pub fn run() {
                 let db_state: DbConn = Arc::new(std::sync::Mutex::new(conn));
                 app.manage(db_state);
 
+                // Give the sidecar manager access to AppHandle for emitting events
+                {
+                    let rt = tauri::async_runtime::handle();
+                    let sidecar_for_handle = Arc::clone(&sidecar_for_setup);
+                    let handle = app.handle().clone();
+                    rt.block_on(async move {
+                        let mut mgr = sidecar_for_handle.lock().await;
+                        mgr.app_handle = Some(handle);
+                    });
+                }
+
                 // Spawn sidecar in background using Tauri's async runtime
                 let sidecar_for_spawn = Arc::clone(&sidecar_for_setup);
                 tauri::async_runtime::spawn(async move {
