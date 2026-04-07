@@ -95,13 +95,32 @@ pub async fn spawn(shared: &SharedSidecar) -> Result<(), String> {
         }
     }
 
-    let mut child = Command::new("python")
-        .arg("sidecar/server.py")
+    // Resolve sidecar directory: in dev mode it's at ../sidecar relative to src-tauri
+    let sidecar_dir = resolve_sidecar_dir();
+    let server_script = sidecar_dir.join("server.py");
+
+    if !server_script.exists() {
+        let mut mgr = shared.lock().await;
+        mgr.status = SidecarStatus::Error;
+        return Err(format!(
+            "Sidecar script not found at: {}",
+            server_script.display()
+        ));
+    }
+
+    // Try python, python3, py in order
+    let python = find_python().ok_or_else(|| {
+        "Python not found. Install Python 3.11+ and ensure it's in PATH.".to_string()
+    })?;
+
+    let mut child = Command::new(&python)
+        .arg(&server_script)
+        .current_dir(&sidecar_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("Failed to spawn sidecar: {e}"))?;
+        .map_err(|e| format!("Failed to spawn sidecar ({python}): {e}"))?;
 
     // Capture stderr in a background task
     let stderr = child.stderr.take();
@@ -271,4 +290,57 @@ pub async fn restart(shared: &SharedSidecar) -> Result<(), String> {
     }
 
     spawn(shared).await
+}
+
+/// Resolve the sidecar directory path.
+/// In dev mode: `../sidecar` relative to the src-tauri directory.
+/// We try multiple strategies to find it.
+fn resolve_sidecar_dir() -> std::path::PathBuf {
+    // Strategy 1: relative to current exe (works in dev mode)
+    if let Ok(exe) = std::env::current_exe() {
+        // exe is at src-tauri/target/debug/app.exe
+        // sidecar is at sidecar/ in project root
+        let project_root = exe
+            .parent()  // target/debug/
+            .and_then(|p| p.parent())  // target/
+            .and_then(|p| p.parent())  // src-tauri/
+            .and_then(|p| p.parent()); // project root
+        if let Some(root) = project_root {
+            let sidecar = root.join("sidecar");
+            if sidecar.exists() {
+                return sidecar;
+            }
+        }
+    }
+
+    // Strategy 2: relative to CWD
+    let cwd_sidecar = std::path::PathBuf::from("../sidecar");
+    if cwd_sidecar.exists() {
+        return cwd_sidecar;
+    }
+
+    let cwd_sidecar2 = std::path::PathBuf::from("sidecar");
+    if cwd_sidecar2.exists() {
+        return cwd_sidecar2;
+    }
+
+    // Fallback
+    std::path::PathBuf::from("sidecar")
+}
+
+/// Find a working Python executable.
+fn find_python() -> Option<String> {
+    for candidate in &["python", "python3", "py"] {
+        let result = std::process::Command::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if let Ok(status) = result {
+            if status.success() {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+    None
 }

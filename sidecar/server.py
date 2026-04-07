@@ -192,24 +192,15 @@ if __name__ == "__main__":
     }
 
     if args.port == 0:
-        config = uvicorn.Config(
-            app="server:app", host="127.0.0.1", port=0, log_config=log_config,
+        # Use a socket to find a free port, then run uvicorn on it
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            actual_port = s.getsockname()[1]
+        print(f"PORT:{actual_port}", flush=True)
+        uvicorn.run(
+            "server:app", host="127.0.0.1", port=actual_port, log_config=log_config,
         )
-        server = uvicorn.Server(config)
-
-        import asyncio
-
-        async def _serve():
-            config.setup_event_loop()
-            await server.startup()
-            if server.started:
-                sockets = server.servers[0].sockets if server.servers else []
-                actual_port = sockets[0].getsockname()[1] if sockets else 0
-                print(f"PORT:{actual_port}", flush=True)
-                await server.main_loop()
-            await server.shutdown()
-
-        asyncio.run(_serve())
     else:
         print(f"PORT:{args.port}", flush=True)
         uvicorn.run("server:app", host="127.0.0.1", port=args.port, log_config=log_config)

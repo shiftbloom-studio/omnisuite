@@ -2,12 +2,12 @@ use crate::sidecar::{self, SharedSidecar};
 use crate::storage::{self, AppSettings, Generation, VoiceProfile};
 use chrono::Utc;
 use rusqlite::Connection;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::State;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 /// Alias for the SQLite connection managed as Tauri state.
+/// Uses std::sync::Mutex because rusqlite::Connection is not Send.
 pub type DbConn = Arc<Mutex<Connection>>;
 
 // ─── Sidecar Commands ────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ pub async fn generate_speech(
 
     // Insert into SQLite
     {
-        let conn = db.lock().await;
+        let conn = db.lock().map_err(|e| format!("DB lock error: {e}"))?;
         storage::insert_generation(&conn, &generation)
             .map_err(|e| format!("DB insert failed: {e}"))?;
     }
@@ -257,7 +257,7 @@ pub async fn list_history(
     offset: Option<u32>,
     db: State<'_, DbConn>,
 ) -> Result<Vec<Generation>, String> {
-    let conn = db.lock().await;
+    let conn = db.lock().map_err(|e| format!("DB lock error: {e}"))?;
     storage::list_generations(&conn, limit.unwrap_or(50), offset.unwrap_or(0))
         .map_err(|e| format!("DB query failed: {e}"))
 }
@@ -267,7 +267,7 @@ pub async fn delete_history_entry(
     id: String,
     db: State<'_, DbConn>,
 ) -> Result<(), String> {
-    let conn = db.lock().await;
+    let conn = db.lock().map_err(|e| format!("DB lock error: {e}"))?;
     if let Some(audio_path) = storage::delete_generation(&conn, &id)
         .map_err(|e| format!("DB delete failed: {e}"))? {
         // Remove the audio file from disk (ignore errors if file already gone)
@@ -280,7 +280,7 @@ pub async fn delete_history_entry(
 pub async fn clear_history(
     db: State<'_, DbConn>,
 ) -> Result<(), String> {
-    let conn = db.lock().await;
+    let conn = db.lock().map_err(|e| format!("DB lock error: {e}"))?;
     let paths = storage::clear_all_generations(&conn)
         .map_err(|e| format!("DB clear failed: {e}"))?;
 
