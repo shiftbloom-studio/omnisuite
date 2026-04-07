@@ -7,6 +7,7 @@ import logging
 import sys
 import tempfile
 import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,21 +27,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# FastAPI app
+# Engine + loading state
 # ---------------------------------------------------------------------------
-app = FastAPI(title="OmniSuite Sidecar", version="0.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 engine = OmniVoiceEngine()
 
-# Track loading state
 _loading_status = "starting"  # starting | downloading | loading | ready | error
 _loading_progress = 0.0
 _loading_error: str | None = None
@@ -66,10 +56,25 @@ def _load_model_background():
         logger.error(f"Model loading failed: {e}")
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     thread = threading.Thread(target=_load_model_background, daemon=True)
     thread.start()
+    yield
+
+
+# ---------------------------------------------------------------------------
+# FastAPI app
+# ---------------------------------------------------------------------------
+app = FastAPI(title="OmniSuite Sidecar", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ---------------------------------------------------------------------------

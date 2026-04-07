@@ -1,15 +1,12 @@
 # Core server
 fastapi==0.135.3
 uvicorn[standard]==0.44.0
+python-multipart>=0.0.20
 
-# PyTorch - install with CUDA index:
-# pip install torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu128
-torch==2.11.0
-torchaudio==2.11.0
+# PyTorch (installed separately via install.py with CUDA index)
+# DO NOT add torch/torchaudio here — they need --index-url
 
-# OmniVoice model + deps (install with --no-deps to avoid torch pin)
-# pip install omnivoice --no-deps
-omnivoice>=0.1.0
+# OmniVoice deps (omnivoice itself installed --no-deps via install.py)
 transformers==5.3.0
 accelerate>=1.13.0
 safetensors>=0.7.0
@@ -19,9 +16,7 @@ soundfile>=0.13.0
 pydub>=0.25.0
 audioop-lts>=0.2.0
 webdataset>=1.0.0
+numpy>=2.0.0
 
 # HuggingFace model download
 huggingface_hub==1.9.0
-
-# Packaging (dev only)
-pyinstaller==6.19.0
