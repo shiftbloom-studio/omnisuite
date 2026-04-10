@@ -9,8 +9,9 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import numpy as np
+import soundfile as sf
 import torch
-import torchaudio
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -75,10 +76,15 @@ def generate_audio(text: str, ref_audio_path: str, ref_text: str, speed: float =
         ref_audio=ref_audio_path,
         ref_text=ref_text,
         speed=speed,
+        preprocess_prompt=False,
     )
 
+    # Convert tensor to WAV bytes using soundfile (no ffmpeg needed)
+    audio_np = audio[0].cpu().numpy()
+    if audio_np.ndim == 2:
+        audio_np = audio_np.T  # soundfile expects (samples, channels)
     buf = io.BytesIO()
-    torchaudio.save(buf, audio[0].cpu(), 24000, format="wav")
+    sf.write(buf, audio_np, 24000, format="WAV", subtype="PCM_16")
     buf.seek(0)
     return buf.read()
 
