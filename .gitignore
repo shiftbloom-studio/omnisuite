@@ -1,11 +1,8 @@
-node_modules/
-dist/
-target/
-.superpowers/
-*.exe
 __pycache__/
 *.pyc
-sidecar/venv/
-sidecar/dist/
-sidecar/build/
+*.pyo
+venv/
 .env
+python-bundle/
+data/
+.superpowers/
