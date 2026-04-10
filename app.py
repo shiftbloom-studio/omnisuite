@@ -1,5 +1,6 @@
 """OmniSuite — Simple voice synthesis & cloning server."""
 
+import asyncio
 import io
 import json
 import os
@@ -138,7 +139,7 @@ async def generate(
         ref_text = profile.get("ref_text", "")
 
     try:
-        wav_bytes = generate_audio(text, str(ref_wav), ref_text, speed)
+        wav_bytes = await asyncio.to_thread(generate_audio, text, str(ref_wav), ref_text, speed)
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -168,7 +169,7 @@ async def clone_test(
         tmp_path = tmp.name
 
     try:
-        wav_bytes = generate_audio(text, tmp_path, ref_text, speed)
+        wav_bytes = await asyncio.to_thread(generate_audio, text, tmp_path, ref_text, speed)
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
