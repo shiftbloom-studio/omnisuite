@@ -1,0 +1,74 @@
+# =============================================================================
+# OmniSuite — Create GitHub Release
+# =============================================================================
+# Runs after the Build workflow completes on a version tag.  Downloads the
+# build artifacts and attaches them to a new GitHub Release with
+# auto-generated release notes.
+# =============================================================================
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: "Create GitHub Release"
+    runs-on: ubuntu-latest
+    # Only run if the Build workflow succeeded AND was triggered by a tag.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      # ── Download artifacts from the Build workflow ────────────────────────
+      - name: Download MSI artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-msi
+          path: release-assets/
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Download NSIS artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-nsis
+          path: release-assets/
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      # ── List collected assets ─────────────────────────────────────────────
+      - name: List release assets
+        run: |
+          echo "=== Release assets ==="
+          ls -lhR release-assets/ 2>/dev/null || echo "No assets found."
+
+      # ── Create GitHub Release ─────────────────────────────────────────────
+      - name: Determine tag name
+        id: tag
+        run: echo "name=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: "OmniSuite ${{ steps.tag.outputs.name }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
+          files: |
+            release-assets/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

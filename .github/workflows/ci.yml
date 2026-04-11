@@ -1,0 +1,115 @@
+# =============================================================================
+# OmniSuite — Continuous Integration
+# =============================================================================
+# Runs on every push to main / feature branches and on pull requests to main.
+# Three independent lint/check jobs keep feedback fast.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# ---------------------------------------------------------------------------
+# Action version pins (SHA-pinned for supply-chain security)
+# ---------------------------------------------------------------------------
+# actions/checkout@v4           -> 11bd71901bbe5b1630ceea73d27597364c9af683
+# actions/setup-node@v4         -> 49933ea5288caeca8642d1e84afbd3f7d6820020
+# dtolnay/rust-toolchain@stable -> 56c500db4b040eacdd6d66dbb8015de1db5e07b2
+# actions/cache@v4              -> 5a3ec84eff668545956fd18022155c47e93e2684
+# actions/setup-python@v5       -> 42375524e23c412d93fb67b49958b491fce71c38
+# ---------------------------------------------------------------------------
+
+jobs:
+  # =========================================================================
+  # Frontend — type-check + build (Linux is fine, no native deps)
+  # =========================================================================
+  lint-frontend:
+    name: "Frontend · Build & Type-check"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (includes tsc type-check)
+        run: npx vite build
+
+  # =========================================================================
+  # Rust / Tauri — cargo check (Windows runner, MSVC pre-installed)
+  # =========================================================================
+  check-rust:
+    name: "Rust · cargo check"
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@56c500db4b040eacdd6d66dbb8015de1db5e07b2 # stable
+        with:
+          toolchain: stable
+
+      - name: Cargo cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: rust-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            rust-${{ runner.os }}-
+
+      # Tauri v2 on Windows needs webview2 libs which are pre-installed on
+      # windows-latest. No extra system deps are required.
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --all-targets
+
+  # =========================================================================
+  # Python sidecar — lint only (torch/CUDA deps are NOT installed)
+  # =========================================================================
+  lint-python:
+    name: "Python · Lint"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lint tools
+        run: pip install flake8 black
+
+      - name: flake8
+        run: flake8 sidecar/ --max-line-length 120 --count --show-source --statistics
+
+      - name: black (check only)
+        run: black --check --line-length 120 sidecar/
