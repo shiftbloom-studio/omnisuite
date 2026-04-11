@@ -5,31 +5,9 @@
 version: 2
 
 updates:
-  # ── npm (frontend) ──────────────────────────────────────────────────────
-  - package-ecosystem: npm
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - frontend
-
-  # ── Cargo (Tauri / Rust backend) ────────────────────────────────────────
-  - package-ecosystem: cargo
-    directory: /src-tauri
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - rust
-
-  # ── pip (Python sidecar) ────────────────────────────────────────────────
+  # ── pip (FastAPI app) ────────────────────────────────────────────────────
   - package-ecosystem: pip
-    directory: /sidecar
+    directory: /
     schedule:
       interval: weekly
       day: monday

@@ -1,74 +1,41 @@
-# =============================================================================
-# OmniSuite — Create GitHub Release
-# =============================================================================
-# Runs after the Build workflow completes on a version tag.  Downloads the
-# build artifacts and attaches them to a new GitHub Release with
-# auto-generated release notes.
-# =============================================================================
-
 name: Release
 
 on:
-  workflow_run:
-    workflows: ["Build"]
-    types:
-      - completed
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  create-release:
     name: "Create GitHub Release"
     runs-on: ubuntu-latest
-    # Only run if the Build workflow succeeded AND was triggered by a tag.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      # ── Download artifacts from the Build workflow ────────────────────────
-      - name: Download MSI artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Setup Python
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
         with:
-          name: windows-msi
-          path: release-assets/
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
+          python-version: "3.13"
 
-      - name: Download NSIS artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: windows-nsis
-          path: release-assets/
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      # ── List collected assets ─────────────────────────────────────────────
-      - name: List release assets
+      - name: Build release assets
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
         run: |
-          echo "=== Release assets ==="
-          ls -lhR release-assets/ 2>/dev/null || echo "No assets found."
+          python -c "from pathlib import Path; import shutil, zipfile, hashlib, os; tag = os.environ['RELEASE_TAG']; root = Path('.'); dist = root / 'dist'; bundle_root = dist / f'omnisuite-{tag}'; shutil.rmtree(bundle_root, ignore_errors=True); bundle_root.mkdir(parents=True, exist_ok=True); files = ['app.py', 'runtime_config.py', 'test_engine.py', 'requirements.txt', 'start.sh', 'start.bat', 'LICENSE']; dirs = ['static']; [shutil.copy2(root / file_name, bundle_root / file_name) for file_name in files]; [shutil.copytree(root / dir_name, bundle_root / dir_name, dirs_exist_ok=True) for dir_name in dirs]; [ (bundle_root / path).mkdir(parents=True, exist_ok=True) for path in ('data/voices', 'data/generations', 'data/models') ]; archive = dist / f'omnisuite-{tag}.zip'; archive.unlink(missing_ok=True); zf = zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED); [zf.write(path, path.relative_to(dist)) for path in sorted(bundle_root.rglob('*')) if path.is_file()]; zf.close(); checksum = hashlib.sha256(archive.read_bytes()).hexdigest(); (dist / f'omnisuite-{tag}.sha256').write_text(f'{checksum}  {archive.name}\n', encoding='utf-8')"
 
-      # ── Create GitHub Release ─────────────────────────────────────────────
-      - name: Determine tag name
-        id: tag
-        run: echo "name=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
-
-      - name: Create Release
+      - name: Publish release
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2
         with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          name: "OmniSuite ${{ steps.tag.outputs.name }}"
+          tag_name: ${{ github.ref_name }}
+          name: "OmniSuite ${{ github.ref_name }}"
           generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           files: |
-            release-assets/**/*
+            dist/*.zip
+            dist/*.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
