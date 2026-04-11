@@ -30,7 +30,7 @@ jobs:
           python -c "from pathlib import Path; import shutil, zipfile, hashlib, os; version = os.environ['BUNDLE_VERSION']; root = Path('.'); dist = root / 'dist'; bundle_root = dist / f'omnisuite-{version}'; shutil.rmtree(bundle_root, ignore_errors=True); bundle_root.mkdir(parents=True, exist_ok=True); files = ['app.py', 'runtime_config.py', 'test_engine.py', 'requirements.txt', 'start.sh', 'start.bat', 'LICENSE']; dirs = ['static']; [shutil.copy2(root / file_name, bundle_root / file_name) for file_name in files]; [shutil.copytree(root / dir_name, bundle_root / dir_name, dirs_exist_ok=True) for dir_name in dirs]; [ (bundle_root / path).mkdir(parents=True, exist_ok=True) for path in ('data/voices', 'data/generations', 'data/models') ]; archive = dist / f'omnisuite-{version}.zip'; archive.unlink(missing_ok=True); zf = zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED); [zf.write(path, path.relative_to(dist)) for path in sorted(bundle_root.rglob('*')) if path.is_file()]; zf.close(); checksum = hashlib.sha256(archive.read_bytes()).hexdigest(); (dist / f'omnisuite-{version}.sha256').write_text(f'{checksum}  {archive.name}\n', encoding='utf-8')"
 
       - name: Upload bundle artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: omnisuite-bundle
           path: |
