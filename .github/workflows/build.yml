@@ -1,126 +1,39 @@
-# =============================================================================
-# OmniSuite — Build Release Artifacts
-# =============================================================================
-# Triggered when a version tag (v*) is pushed.  Builds the Tauri Windows
-# installer (.msi / .exe) and uploads it as a workflow artifact so that the
-# release workflow can attach it to a GitHub Release.
-#
-# SIDECAR NOTE:
-# The Python sidecar (PyInstaller binary) requires PyTorch + CUDA and is too
-# heavy to build in CI.  It must be built locally:
-#
-#   cd sidecar/
-#   pyinstaller omnisuite-sidecar.spec
-#
-# Then either:
-#   a) commit the resulting binary into the repo under a known path, or
-#   b) upload it as a separate release asset manually.
-#
-# This workflow checks for the sidecar binary and warns if it is missing
-# but does NOT fail the build — the Tauri app can still be bundled without it.
-#
-# SECRETS REQUIRED:
-# ─────────────────────────────────────────────────────────────────────────────
-# TAURI_SIGNING_PRIVATE_KEY — Base64-encoded private key for Tauri updater
-#                             signing.  Generate with `npx tauri signer generate`.
-#                             Store in Settings → Secrets → Actions.
-# TAURI_SIGNING_PRIVATE_KEY_PASSWORD — (optional) passphrase for the key.
-# =============================================================================
-
 name: Build
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-windows:
-    name: "Build · Windows Installer"
-    runs-on: windows-latest
+  package-source:
+    name: "Build · Source Bundle"
+    runs-on: ubuntu-latest
 
     steps:
-      # ── Checkout ──────────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      # ── Toolchains ────────────────────────────────────────────────────────
-      - name: Setup Node 20
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "20"
-          cache: npm
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@56c500db4b040eacdd6d66dbb8015de1db5e07b2 # stable
-        with:
-          toolchain: stable
-
-      - name: Setup Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
 
-      # ── Caches ────────────────────────────────────────────────────────────
-      - name: Cargo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: rust-build-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            rust-build-${{ runner.os }}-
-
-      # ── Frontend ──────────────────────────────────────────────────────────
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build
-
-      # ── Sidecar check ────────────────────────────────────────────────────
-      # Look for the pre-built sidecar binary.  Tauri expects sidecar
-      # binaries under src-tauri/binaries/ (or the path configured in
-      # tauri.conf.json).  Adjust the glob below if your layout differs.
-      - name: Check for pre-built sidecar binary
-        id: sidecar
-        shell: bash
-        run: |
-          if ls src-tauri/binaries/omnisuite-sidecar* 2>/dev/null; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Sidecar binary found — it will be bundled."
-          else
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Sidecar binary NOT found under src-tauri/binaries/. The installer will be built without the sidecar. Build it locally with PyInstaller and commit or upload it."
-          fi
-
-      # ── Tauri build ───────────────────────────────────────────────────────
-      - name: Build Tauri app
-        run: npx tauri build
+      - name: Create distributable bundle
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          BUNDLE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+        run: |
+          python -c "from pathlib import Path; import shutil, zipfile, hashlib, os; version = os.environ['BUNDLE_VERSION']; root = Path('.'); dist = root / 'dist'; bundle_root = dist / f'omnisuite-{version}'; shutil.rmtree(bundle_root, ignore_errors=True); bundle_root.mkdir(parents=True, exist_ok=True); files = ['app.py', 'runtime_config.py', 'test_engine.py', 'requirements.txt', 'start.sh', 'start.bat', 'LICENSE']; dirs = ['static']; [shutil.copy2(root / file_name, bundle_root / file_name) for file_name in files]; [shutil.copytree(root / dir_name, bundle_root / dir_name, dirs_exist_ok=True) for dir_name in dirs]; [ (bundle_root / path).mkdir(parents=True, exist_ok=True) for path in ('data/voices', 'data/generations', 'data/models') ]; archive = dist / f'omnisuite-{version}.zip'; archive.unlink(missing_ok=True); zf = zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED); [zf.write(path, path.relative_to(dist)) for path in sorted(bundle_root.rglob('*')) if path.is_file()]; zf.close(); checksum = hashlib.sha256(archive.read_bytes()).hexdigest(); (dist / f'omnisuite-{version}.sha256').write_text(f'{checksum}  {archive.name}\n', encoding='utf-8')"
 
-      # ── Upload artifacts ──────────────────────────────────────────────────
-      # Tauri v2 produces bundles under src-tauri/target/release/bundle/
-      # Typical Windows outputs: nsis/*.exe and msi/*.msi
-      - name: Upload MSI installer
+      - name: Upload bundle artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: windows-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: warn
-
-      - name: Upload NSIS installer
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: windows-nsis
-          path: src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: warn
+          name: omnisuite-bundle
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error

@@ -11,10 +11,15 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-import torch
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+from runtime_config import (
+    describe_torch_runtime,
+    get_torch_runtime_config,
+    is_torchcodec_available,
+)
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -30,14 +35,62 @@ for d in [VOICES_DIR, GENERATIONS_DIR, MODELS_DIR]:
 # ── Default voices ───────────────────────────────────────────────────────────
 
 DEFAULT_VOICES = [
-    {"id": "default-alex", "name": "Alex", "language": "en", "type": "default", "description": "Neutral male narrator"},
-    {"id": "default-sarah", "name": "Sarah", "language": "en", "type": "default", "description": "Warm conversational female"},
-    {"id": "default-hans", "name": "Hans", "language": "de", "type": "default", "description": "Calm measured male"},
-    {"id": "default-lucia", "name": "Lucia", "language": "es", "type": "default", "description": "Bright expressive female"},
-    {"id": "default-yuki", "name": "Yuki", "language": "ja", "type": "default", "description": "Clear professional female"},
-    {"id": "default-pierre", "name": "Pierre", "language": "fr", "type": "default", "description": "Refined formal male"},
-    {"id": "default-priya", "name": "Priya", "language": "hi", "type": "default", "description": "Friendly articulate female"},
-    {"id": "default-marco", "name": "Marco", "language": "it", "type": "default", "description": "Expressive Italian male"},
+    {
+        "id": "default-alex",
+        "name": "Alex",
+        "language": "en",
+        "type": "default",
+        "description": "Neutral male narrator",
+    },
+    {
+        "id": "default-sarah",
+        "name": "Sarah",
+        "language": "en",
+        "type": "default",
+        "description": "Warm conversational female",
+    },
+    {
+        "id": "default-hans",
+        "name": "Hans",
+        "language": "de",
+        "type": "default",
+        "description": "Calm measured male",
+    },
+    {
+        "id": "default-lucia",
+        "name": "Lucia",
+        "language": "es",
+        "type": "default",
+        "description": "Bright expressive female",
+    },
+    {
+        "id": "default-yuki",
+        "name": "Yuki",
+        "language": "ja",
+        "type": "default",
+        "description": "Clear professional female",
+    },
+    {
+        "id": "default-pierre",
+        "name": "Pierre",
+        "language": "fr",
+        "type": "default",
+        "description": "Refined formal male",
+    },
+    {
+        "id": "default-priya",
+        "name": "Priya",
+        "language": "hi",
+        "type": "default",
+        "description": "Friendly articulate female",
+    },
+    {
+        "id": "default-marco",
+        "name": "Marco",
+        "language": "it",
+        "type": "default",
+        "description": "Expressive Italian male",
+    },
 ]
 
 # ── Engine ───────────────────────────────────────────────────────────────────
@@ -45,6 +98,7 @@ DEFAULT_VOICES = [
 model = None
 model_status = "not_loaded"  # not_loaded | loading | ready | error
 model_error = None
+torch_runtime = get_torch_runtime_config()
 
 
 def load_model():
@@ -53,23 +107,32 @@ def load_model():
     model_status = "loading"
     try:
         from omnivoice import OmniVoice
+
         model = OmniVoice.from_pretrained(
             "k2-fsa/OmniVoice",
-            device_map="cpu",
-            dtype=torch.float32,
+            device_map=torch_runtime.device_map,
+            dtype=torch_runtime.dtype,
         )
         model_status = "ready"
-        print("Model loaded (CPU)")
+        print(f"Model loaded ({describe_torch_runtime(torch_runtime)})")
     except Exception as e:
         model_status = "error"
         model_error = str(e)
         print(f"Model load failed: {e}")
 
 
-def generate_audio(text: str, ref_audio_path: str, ref_text: str, speed: float = 1.0) -> bytes:
+def generate_audio(
+    text: str, ref_audio_path: str, ref_text: str, speed: float = 1.0
+) -> bytes:
     """Generate speech, return WAV bytes."""
     if model is None:
         raise RuntimeError("Model not loaded")
+
+    if ref_audio_path and not is_torchcodec_available():
+        raise RuntimeError(
+            "TorchCodec is required for reference audio decoding. "
+            "Install the 'torchcodec' dependency and restart OmniSuite."
+        )
 
     audio = model.generate(
         text=text,
@@ -102,7 +165,16 @@ async def index():
 
 @app.get("/api/status")
 async def status():
-    return {"status": model_status, "error": model_error}
+    return {
+        "status": model_status,
+        "error": model_error,
+        "device": torch_runtime.device_map,
+        "dtype": str(torch_runtime.dtype).replace("torch.", ""),
+        "acceleration": torch_runtime.acceleration,
+        "dependencies": {
+            "torchcodec": is_torchcodec_available(),
+        },
+    }
 
 
 @app.get("/api/voices")
@@ -137,7 +209,9 @@ async def generate(
     profile_path = voice_dir / "profile.json"
 
     if not ref_wav.exists():
-        return JSONResponse(status_code=404, content={"error": f"Voice '{voice_id}' not found"})
+        return JSONResponse(
+            status_code=404, content={"error": f"Voice '{voice_id}' not found"}
+        )
 
     ref_text = ""
     if profile_path.exists():
@@ -145,7 +219,9 @@ async def generate(
         ref_text = profile.get("ref_text", "")
 
     try:
-        wav_bytes = await asyncio.to_thread(generate_audio, text, str(ref_wav), ref_text, speed)
+        wav_bytes = await asyncio.to_thread(
+            generate_audio, text, str(ref_wav), ref_text, speed
+        )
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -154,9 +230,13 @@ async def generate(
     gen_path = GENERATIONS_DIR / f"{gen_id}.wav"
     gen_path.write_bytes(wav_bytes)
 
-    return Response(content=wav_bytes, media_type="audio/wav", headers={
-        "X-Generation-Id": gen_id,
-    })
+    return Response(
+        content=wav_bytes,
+        media_type="audio/wav",
+        headers={
+            "X-Generation-Id": gen_id,
+        },
+    )
 
 
 @app.post("/api/clone/test")
@@ -175,7 +255,9 @@ async def clone_test(
         tmp_path = tmp.name
 
     try:
-        wav_bytes = await asyncio.to_thread(generate_audio, text, tmp_path, ref_text, speed)
+        wav_bytes = await asyncio.to_thread(
+            generate_audio, text, tmp_path, ref_text, speed
+        )
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -232,7 +314,9 @@ async def get_voice_audio(voice_id: str):
 
 # ── Startup ──────────────────────────────────────────────────────────────────
 
+
 @app.on_event("startup")
 async def startup():
     import threading
+
     threading.Thread(target=load_model, daemon=True).start()
