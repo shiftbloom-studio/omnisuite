@@ -29,7 +29,7 @@ jobs:
           python -c "from pathlib import Path; import shutil, zipfile, hashlib, os; tag = os.environ['RELEASE_TAG']; root = Path('.'); dist = root / 'dist'; bundle_root = dist / f'omnisuite-{tag}'; shutil.rmtree(bundle_root, ignore_errors=True); bundle_root.mkdir(parents=True, exist_ok=True); files = ['app.py', 'runtime_config.py', 'test_engine.py', 'requirements.txt', 'start.sh', 'start.bat', 'LICENSE']; dirs = ['static']; [shutil.copy2(root / file_name, bundle_root / file_name) for file_name in files]; [shutil.copytree(root / dir_name, bundle_root / dir_name, dirs_exist_ok=True) for dir_name in dirs]; [ (bundle_root / path).mkdir(parents=True, exist_ok=True) for path in ('data/voices', 'data/generations', 'data/models') ]; archive = dist / f'omnisuite-{tag}.zip'; archive.unlink(missing_ok=True); zf = zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED); [zf.write(path, path.relative_to(dist)) for path in sorted(bundle_root.rglob('*')) if path.is_file()]; zf.close(); checksum = hashlib.sha256(archive.read_bytes()).hexdigest(); (dist / f'omnisuite-{tag}.sha256').write_text(f'{checksum}  {archive.name}\n', encoding='utf-8')"
 
       - name: Publish release
-        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "OmniSuite ${{ github.ref_name }}"
