@@ -15,10 +15,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Setup Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v5
         with:
           python-version: "3.13"
 
@@ -29,7 +29,7 @@ jobs:
           python -c "from pathlib import Path; import shutil, zipfile, hashlib, os; tag = os.environ['RELEASE_TAG']; root = Path('.'); dist = root / 'dist'; bundle_root = dist / f'omnisuite-{tag}'; shutil.rmtree(bundle_root, ignore_errors=True); bundle_root.mkdir(parents=True, exist_ok=True); files = ['app.py', 'runtime_config.py', 'test_engine.py', 'requirements.txt', 'start.sh', 'start.bat', 'LICENSE']; dirs = ['static']; [shutil.copy2(root / file_name, bundle_root / file_name) for file_name in files]; [shutil.copytree(root / dir_name, bundle_root / dir_name, dirs_exist_ok=True) for dir_name in dirs]; [ (bundle_root / path).mkdir(parents=True, exist_ok=True) for path in ('data/voices', 'data/generations', 'data/models') ]; archive = dist / f'omnisuite-{tag}.zip'; archive.unlink(missing_ok=True); zf = zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED); [zf.write(path, path.relative_to(dist)) for path in sorted(bundle_root.rglob('*')) if path.is_file()]; zf.close(); checksum = hashlib.sha256(archive.read_bytes()).hexdigest(); (dist / f'omnisuite-{tag}.sha256').write_text(f'{checksum}  {archive.name}\n', encoding='utf-8')"
 
       - name: Publish release
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "OmniSuite ${{ github.ref_name }}"
