@@ -19,7 +19,9 @@ permissions:
 jobs:
   python-validation:
     name: "Python · Validate (${{ matrix.python-version }})"
-    runs-on: ubuntu-latest
+    runs-on:
+      group: Default
+      labels: [self-hosted, linux, x64]
     strategy:
       fail-fast: false
       matrix:
