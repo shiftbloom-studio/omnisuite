@@ -12,9 +12,7 @@ permissions:
 jobs:
   package-source:
     name: "Build · Source Bundle"
-    runs-on:
-      group: Default
-      labels: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout

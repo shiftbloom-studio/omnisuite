@@ -11,9 +11,7 @@ permissions:
 jobs:
   create-release:
     name: "Create GitHub Release"
-    runs-on:
-      group: Default
-      labels: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
