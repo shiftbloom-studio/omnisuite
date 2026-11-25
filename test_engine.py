@@ -1,4 +1,4 @@
-"""Test OmniVoice engine directly — no server needed."""
+"""Test OmniVoice engine directly - no server needed."""
 
 import io
 import os
@@ -74,7 +74,7 @@ try:
 
     sf.write("test_output.wav", audio_np, 24000, format="WAV", subtype="PCM_16")
     size = os.path.getsize("test_output.wav")
-    print(f"  SUCCESS ({time.time() - t0:.1f}s) — test_output.wav ({size:,} bytes)")
+    print(f"  SUCCESS ({time.time() - t0:.1f}s) - test_output.wav ({size:,} bytes)")
 except Exception as e:
     print(f"  FAIL ({time.time() - t0:.1f}s): {e}")
 

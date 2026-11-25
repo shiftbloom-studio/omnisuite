@@ -45,7 +45,7 @@ sha256_of() {
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 [ "$(sha256_of "$TMP/bundle.zip")" = "$(awk '{print $1}' "$TMP/bundle.sha256")" ] \
-  || fail "Checksum verification failed — aborting."
+  || fail "Checksum verification failed - aborting."
 
 # ── 4. Extract into the install directory ──────────────────────────────────
 mkdir -p "$APP_DIR"
