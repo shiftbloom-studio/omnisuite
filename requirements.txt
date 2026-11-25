@@ -1,6 +1,6 @@
 fastapi==0.141.1
 uvicorn==0.46.0
-python-multipart==0.0.32
+python-multipart==0.0.33
 torch==2.13.0
 torchaudio==2.11.1
 torchcodec==0.16.0
