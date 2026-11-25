@@ -1,4 +1,4 @@
-"""OmniSuite — Simple voice synthesis & cloning server."""
+"""OmniSuite - Simple voice synthesis & cloning server."""
 
 import asyncio
 import io
