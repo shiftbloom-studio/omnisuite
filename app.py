@@ -32,6 +32,16 @@ MODELS_DIR = DATA_DIR / "models"
 for d in [VOICES_DIR, GENERATIONS_DIR, MODELS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
+
+def voice_path(voice_id: str) -> Path | None:
+    """Directory of a voice, or None when the id would point outside VOICES_DIR."""
+    base = os.path.normpath(os.path.abspath(VOICES_DIR))
+    full = os.path.normpath(os.path.join(base, voice_id))
+    # Only direct children of VOICES_DIR: no "..", no absolute paths, no nested dirs.
+    if not full.startswith(base + os.sep) or os.path.dirname(full) != base:
+        return None
+    return Path(full)
+
 # ── Default voices ───────────────────────────────────────────────────────────
 
 DEFAULT_VOICES = [
@@ -117,8 +127,30 @@ def load_model():
         print(f"Model loaded ({describe_torch_runtime(torch_runtime)})")
     except Exception as e:
         model_status = "error"
-        model_error = str(e)
+        # Details stay in the server console; the status endpoint only reports a failure.
+        model_error = "Model failed to load. See the server console for details."
         print(f"Model load failed: {e}")
+
+
+TORCHCODEC_MISSING = (
+    "TorchCodec is required for reference audio decoding. "
+    "Install the 'torchcodec' dependency and restart OmniSuite."
+)
+
+
+class TorchCodecMissingError(RuntimeError):
+    """Reference audio needs TorchCodec, which isn't installed."""
+
+
+def generation_error(e: Exception) -> JSONResponse:
+    """500 response for a failed generation: known causes by name, the rest only in the log."""
+    if isinstance(e, TorchCodecMissingError):
+        return JSONResponse(status_code=500, content={"error": TORCHCODEC_MISSING})
+    print(f"Generation failed: {e!r}")
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Generation failed. See the server console for details."},
+    )
 
 
 def generate_audio(
@@ -129,10 +161,7 @@ def generate_audio(
         raise RuntimeError("Model not loaded")
 
     if ref_audio_path and not is_torchcodec_available():
-        raise RuntimeError(
-            "TorchCodec is required for reference audio decoding. "
-            "Install the 'torchcodec' dependency and restart OmniSuite."
-        )
+        raise TorchCodecMissingError(TORCHCODEC_MISSING)
 
     audio = model.generate(
         text=text,
@@ -204,11 +233,11 @@ async def generate(
         return JSONResponse(status_code=503, content={"error": "Model not loaded"})
 
     # Find voice
-    voice_dir = VOICES_DIR / voice_id
-    ref_wav = voice_dir / "ref.wav"
-    profile_path = voice_dir / "profile.json"
+    voice_dir = voice_path(voice_id)
+    ref_wav = voice_dir / "ref.wav" if voice_dir else None
+    profile_path = voice_dir / "profile.json" if voice_dir else None
 
-    if not ref_wav.exists():
+    if ref_wav is None or profile_path is None or not ref_wav.exists():
         return JSONResponse(
             status_code=404, content={"error": f"Voice '{voice_id}' not found"}
         )
@@ -223,7 +252,7 @@ async def generate(
             generate_audio, text, str(ref_wav), ref_text, speed
         )
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return generation_error(e)
 
     # Save to generations
     gen_id = str(uuid.uuid4())
@@ -260,7 +289,7 @@ async def clone_test(
         )
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return generation_error(e)
     finally:
         os.unlink(tmp_path)
 
@@ -297,8 +326,8 @@ async def clone_save(
 
 @app.delete("/api/voices/{voice_id}")
 async def delete_voice(voice_id: str):
-    voice_dir = VOICES_DIR / voice_id
-    if voice_dir.exists():
+    voice_dir = voice_path(voice_id)
+    if voice_dir and voice_dir.exists():
         shutil.rmtree(voice_dir)
         return {"ok": True}
     return JSONResponse(status_code=404, content={"error": "Not found"})
@@ -306,8 +335,9 @@ async def delete_voice(voice_id: str):
 
 @app.get("/api/voices/{voice_id}/audio")
 async def get_voice_audio(voice_id: str):
-    ref_wav = VOICES_DIR / voice_id / "ref.wav"
-    if not ref_wav.exists():
+    voice_dir = voice_path(voice_id)
+    ref_wav = voice_dir / "ref.wav" if voice_dir else None
+    if ref_wav is None or not ref_wav.exists():
         return JSONResponse(status_code=404, content={"error": "Not found"})
     return FileResponse(ref_wav, media_type="audio/wav")
 
