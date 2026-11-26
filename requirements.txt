@@ -1,7 +1,7 @@
-fastapi==0.162.7
+fastapi==0.165.0
 uvicorn==0.54.0
 python-multipart==0.0.34
-torch==2.13.0
+torch==2.15.0
 torchaudio==2.11.1
-torchcodec==0.16.0
+torchcodec==0.17.0
 omnivoice==0.2.1
