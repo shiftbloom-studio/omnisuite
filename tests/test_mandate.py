@@ -63,6 +63,7 @@ class Stand:
         self.proofs_seen = set()
         self.calls = []
         self.registry_down = False
+        self.refuses_with = None  # when set: the registry refuses every listing with this reason
         self.stem_answer = None  # when set: (status, headers, body) for every stem call
         self.servers = [self._serve(self.stem_call), self._serve(self.registry_call)]
         self.stem, self.registry = (
@@ -212,6 +213,8 @@ class Stand:
             or not path.lstrip("/").startswith(right["path_prefix"])
         ):
             raise Refused("outside_mandate")
+        if self.refuses_with:
+            raise Refused(self.refuses_with)
         if claims["jti"] in self.stopped:
             raise Refused("revoked")
         if claims["exp"] <= time.time():
@@ -405,6 +408,18 @@ def test_the_signed_mandate_is_kept_until_it_runs_out(stand, voice_dir):
     }
 
 
+def test_asking_again_while_waiting_keeps_the_open_request(stand, voice_dir):
+    voice = mandate.clip_hash(voice_dir)
+    first = mandate.ask(stand.where, voice_dir, voice, "Ada")
+    calls = len(stand.calls)
+    again = mandate.ask(stand.where, voice_dir, voice, "Ada")
+    assert again["approve_url"] == first["approve_url"] and len(stand.calls) == calls
+
+    # The person signed that first request in the meantime: their answer still counts.
+    stand.approve()
+    assert mandate.collect(stand.where, voice_dir, voice)["answer"] == "approved"
+
+
 def test_a_no_or_no_answer_ends_the_request(stand, voice_dir):
     voice = mandate.clip_hash(voice_dir)
     mandate.ask(stand.where, voice_dir, voice, "Ada")
@@ -570,6 +585,69 @@ def test_receipts_wait_while_the_registry_is_away(stand, voice_dir):
     outbox.add(receipt_for(data_dir, stand.registry)["id"], "ada")
     outbox.send(stand.where)
     assert len(outbox.waiting()) == 1
+
+
+def test_a_note_is_never_seen_half_written(stand, voice_dir, monkeypatch):
+    data_dir = voice_dir.parent.parent
+    signed_voice(stand, voice_dir)
+    outbox = mandate.Outbox(data_dir)
+    receipt = receipt_for(data_dir, stand.registry)
+
+    # What a send would find while add() is still writing: nothing it takes for a note.
+    (data_dir / "outbox").mkdir()
+    (data_dir / "outbox" / f"{receipt['id']}.0123abcd.tmp").write_text("")
+    assert outbox.waiting() == []
+    outbox.add(receipt["id"], "ada")
+    assert json.loads(outbox.waiting()[0].read_text()) == {"voice_id": "ada"}
+
+    # A note that cannot be read right now stays for the next round.
+    real_read = type(voice_dir).read_text
+
+    def locked(path, *args, **kwargs):
+        if path.parent.name == "outbox":
+            raise PermissionError("in use")
+        return real_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(voice_dir), "read_text", locked)
+    outbox.send(stand.where)
+    assert len(outbox.waiting()) == 1 and stand.listed == {}
+    monkeypatch.setattr(type(voice_dir), "read_text", real_read)
+    outbox.send(stand.where)
+    assert outbox.waiting() == [] and len(stand.listed) == 1
+
+
+def test_a_clock_that_is_off_loses_no_receipt(stand, voice_dir, capsys):
+    data_dir = voice_dir.parent.parent
+    voice = signed_voice(stand, voice_dir)
+    outbox = mandate.Outbox(data_dir)
+    for _ in range(3):
+        outbox.add(receipt_for(data_dir, stand.registry)["id"], "ada")
+
+    # A proof from a clock that is minutes off is turned down as invalid_pop.
+    stand.refuses_with = "invalid_pop"
+    calls = len(stand.calls)
+    outbox.send(stand.where)
+    assert len(outbox.waiting()) == 3
+    # One try is enough to know: the others would fare the same.
+    assert len(stand.calls) == calls + 1
+    assert "check this machine's clock" in capsys.readouterr().out
+    assert mandate.standing(mandate.load_wallet(voice_dir, stand.where, voice)) is not None
+
+    stand.refuses_with = None
+    outbox.send(stand.where)
+    assert outbox.waiting() == [] and len(stand.listed) == 3
+
+
+def test_a_mandate_the_registry_cannot_check_counts_as_over(stand, voice_dir):
+    data_dir = voice_dir.parent.parent
+    voice = signed_voice(stand, voice_dir)
+    outbox = mandate.Outbox(data_dir)
+    outbox.add(receipt_for(data_dir, stand.registry)["id"], "ada")
+    stand.refuses_with = "invalid_chain"
+    outbox.send(stand.where)
+    shown = mandate.state(mandate.load_wallet(voice_dir, stand.where, voice))
+    assert shown["state"] == "ended" and shown["reason"] == "invalid_chain"
+    assert outbox.waiting() == []
 
 
 def test_a_stop_at_stem_ends_the_listing(stand, voice_dir):

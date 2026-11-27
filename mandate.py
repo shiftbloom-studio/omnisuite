@@ -47,8 +47,11 @@ TIMEOUT_SECONDS = 10
 MAX_ANSWER_BYTES = 64 * 1024
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 DEFAULT_PORTS = {"https": 443, "http": 80}
-# Refusals that mean the mandate is over, as stem names them.
-ENDED = ("revoked", "expired", "unknown")
+# Refusals that mean the mandate is over or cannot be used, as stem names them.
+ENDED = ("revoked", "expired", "unknown", "invalid_chain", "invalid_human_proof")
+# Refusals that say nothing against the receipt: a proof that came too late or
+# twice (a clock that is off does that), or a budget that is used up for now.
+NOT_NOW = ("invalid_pop", "replayed", "over_budget")
 
 
 class MandateError(Exception):
@@ -347,7 +350,14 @@ def state(wallet: dict, now: float | None = None) -> dict:
 
 
 def ask(where: Services, voice_dir: Path, voice: str, name: str) -> dict:
-    """Ask stem for a mandate for this voice. Returns the state, now waiting."""
+    """Ask stem for a mandate for this voice. Returns the state, now waiting.
+
+    While a request is open, asking again changes nothing: the person may be
+    signing that one right now, and a new key would make their answer worthless.
+    """
+    open_now = state(load_wallet(voice_dir, where, voice))
+    if open_now["state"] == "waiting":
+        return open_now
     key = new_key()
     status, answer = send(
         "POST",
@@ -472,6 +482,7 @@ def list_receipt(where: Services, voice: str, signed: dict, receipt: dict) -> st
 
     Returns ``listed``, ``later`` (try again), ``refused`` (the registry will not
     take this one) or, when the mandate is over, the reason stem gives for that.
+    Only a refusal that is about this receipt counts as ``refused``.
     """
     try:
         url = listing_url(where.registry, voice, str(receipt.get("id")))
@@ -488,8 +499,15 @@ def list_receipt(where: Services, voice: str, signed: dict, receipt: dict) -> st
         return "later"
     if status in (200, 201, 409):  # 409: it is on the list already
         return "listed"
-    if status in (401, 403) and answer.get("reason") in ENDED:
-        return answer["reason"]
+    reason = answer.get("reason") if status in (401, 403) else None
+    if reason in ENDED:
+        return reason
+    if reason in NOT_NOW:
+        print(
+            f"The registry did not take the proof for receipt {receipt['id']} ({reason}). "
+            "It stays in the outbox. If this keeps happening, check this machine's clock."
+        )
+        return "later"
     if status == 429 or status >= 500:
         return "later"
     print(f"Registry refused receipt {receipt['id']} ({status})")
@@ -512,19 +530,23 @@ class Outbox:
 
     def add(self, receipt_id: str, voice_id: str) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
-        (self.folder / f"{uuid.UUID(receipt_id)}.json").write_text(
-            json.dumps({"voice_id": voice_id})
-        )
+        name = str(uuid.UUID(receipt_id))
+        # Swapped in whole: a send that runs right now never sees half a note.
+        draft = self.folder / f"{name}.{uuid.uuid4().hex}.tmp"
+        draft.write_text(json.dumps({"voice_id": voice_id}))
+        os.replace(draft, self.folder / f"{name}.json")
 
     def waiting(self) -> list[Path]:
         return sorted(self.folder.glob("*.json"), key=lambda path: path.stat().st_mtime)
 
     def send(self, where: Services) -> None:
-        """Try every waiting receipt once, oldest first."""
+        """Send the waiting receipts, oldest first, until one has to wait."""
         with self._lock:
             for note in self.waiting():
-                if self._send_one(where, note) != "later":
-                    note.unlink(missing_ok=True)
+                if self._send_one(where, note) == "later":
+                    # The registry is away or not taking proofs: the rest would fare the same.
+                    break
+                note.unlink(missing_ok=True)
 
     def send_in_background(self, where: Services) -> None:
         threading.Thread(target=self.send, args=(where,), daemon=True).start()
@@ -533,7 +555,12 @@ class Outbox:
         try:
             voice_dir = self.voices_dir / str(json.loads(note.read_text())["voice_id"])
             receipt = json.loads((self.receipts_dir / note.name).read_text())
-        except (OSError, ValueError, KeyError, TypeError):
+        except FileNotFoundError:
+            return "refused"
+        except OSError:
+            # Could not be read just now, which says nothing about the receipt.
+            return "later"
+        except (ValueError, KeyError, TypeError):
             return "refused"
         # Only for the voice the file was made with, and only while its mandate stands.
         voice = clip_hash(voice_dir) if voice_dir.parent == self.voices_dir else None
