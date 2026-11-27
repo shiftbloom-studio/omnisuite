@@ -38,7 +38,8 @@ Then open <http://localhost:8000>.
 - Optional: an NVIDIA GPU. It is used whenever PyTorch can see it. The Linux
   wheels from PyPI bring CUDA along. On Windows, install the CUDA build of
   PyTorch from [pytorch.org](https://pytorch.org/get-started/locally/) before
-  the other requirements.
+  the other requirements, in exactly the version `requirements.txt` pins. With
+  any other version, pip replaces it with the CPU build.
 
 ## License
 
