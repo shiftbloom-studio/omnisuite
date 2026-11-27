@@ -33,9 +33,9 @@ def test_data_folder_follows_the_environment(tmp_path):
     code = "import app, receipts; print(receipts.DATA_DIR); print(app.VOICES_DIR)"
     root = Path(receipts.__file__).parent
 
-    def run(env):
+    def run(env, cwd=root):
         result = subprocess.run(
-            [sys.executable, "-c", code], cwd=root, env=env, capture_output=True, text=True
+            [sys.executable, "-c", code], cwd=cwd, env=env, capture_output=True, text=True
         )
         assert result.returncode == 0, result.stderr
         return [Path(line) for line in result.stdout.splitlines()[-2:]]
@@ -47,6 +47,11 @@ def test_data_folder_follows_the_environment(tmp_path):
         elsewhere,
         elsewhere / "voices",
     ]
+
+    # "~" and a relative path become absolute, so every part of the app means the same folder.
+    home = {**env, "HOME": str(tmp_path), "USERPROFILE": str(tmp_path), "PYTHONPATH": str(root)}
+    assert run({**home, "OMNISUITE_DATA_DIR": "~/kept"})[0] == elsewhere
+    assert run({**home, "OMNISUITE_DATA_DIR": "kept"}, cwd=tmp_path)[0] == elsewhere
 
 
 def test_tag_is_stable_and_16_bit():

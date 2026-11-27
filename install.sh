@@ -16,7 +16,7 @@ INSTALL_DIR="${OMNISUITE_HOME:-$HOME/.omnisuite}"
 BIN_DIR="${OMNISUITE_BIN_DIR:-$HOME/.local/bin}"
 APP_DIR="$INSTALL_DIR/$VERSION"
 VENV_DIR="$INSTALL_DIR/venv"
-DATA_DIR="$INSTALL_DIR/data"
+DATA_DIR="${OMNISUITE_DATA_DIR:-$INSTALL_DIR/data}"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
