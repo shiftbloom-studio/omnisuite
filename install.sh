@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/shiftbloom-studio/omnisuite/main/install.sh | bash
 #
 # Installs OmniSuite into ~/.omnisuite and links `omnisuite` into ~/.local/bin.
-# Requires Python 3.11–3.13 and a working internet connection.
+# Requires Python 3.11–3.14 and a working internet connection.
 
 set -euo pipefail
 
@@ -20,16 +20,16 @@ VENV_DIR="$INSTALL_DIR/venv"
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
-# ── 1. Locate Python 3.11–3.13 ─────────────────────────────────────────────
+# ── 1. Locate Python 3.11–3.14 ─────────────────────────────────────────────
 PYTHON_BIN=""
-for candidate in python3.13 python3.12 python3.11 python3; do
+for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
   if command -v "$candidate" >/dev/null 2>&1 &&
-     "$candidate" -c 'import sys; sys.exit(0 if (3, 11) <= sys.version_info[:2] <= (3, 13) else 1)'; then
+     "$candidate" -c 'import sys; sys.exit(0 if (3, 11) <= sys.version_info[:2] <= (3, 14) else 1)'; then
     PYTHON_BIN="$candidate"
     break
   fi
 done
-[[ -n "$PYTHON_BIN" ]] || fail "Python 3.11–3.13 is required (e.g. brew install python@3.13)."
+[[ -n "$PYTHON_BIN" ]] || fail "Python 3.11–3.14 is required (e.g. brew install python@3.14)."
 info "Using Python: $PYTHON_BIN"
 
 # ── 2. Download the release bundle + its checksum ───────────────────────────

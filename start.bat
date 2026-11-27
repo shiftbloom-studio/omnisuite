@@ -3,6 +3,7 @@ setlocal
 
 set "PYTHON_BIN="
 if exist ".venv\Scripts\python.exe" set "PYTHON_BIN=.venv\Scripts\python.exe"
+if not defined PYTHON_BIN py -3.14 -c "import sys" >nul 2>&1 && set "PYTHON_BIN=py -3.14"
 if not defined PYTHON_BIN py -3.13 -c "import sys" >nul 2>&1 && set "PYTHON_BIN=py -3.13"
 if not defined PYTHON_BIN py -3.12 -c "import sys" >nul 2>&1 && set "PYTHON_BIN=py -3.12"
 if not defined PYTHON_BIN py -3.11 -c "import sys" >nul 2>&1 && set "PYTHON_BIN=py -3.11"

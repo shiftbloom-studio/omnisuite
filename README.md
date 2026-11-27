@@ -34,7 +34,7 @@ Then open <http://localhost:8000>.
 ## Requirements
 
 - macOS (Apple Silicon recommended) or Linux
-- Python 3.11–3.13 (installed automatically by the Homebrew formula)
+- Python 3.11–3.14 (installed automatically by the Homebrew formula)
 
 ## License
 

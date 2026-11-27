@@ -5,12 +5,12 @@ class Omnisuite < Formula
   sha256 "2ecacbd5d25e6841d26935965f9bf14ea03a61bee8eab48c7a1ccbbb3efb5eac"
   license "AGPL-3.0"
 
-  depends_on "python@3.13"
+  depends_on "python@3.14"
 
   def install
     libexec.install Dir["*"]
 
-    python = formula_opt_bin("python@3.13")/"python3.13"
+    python = formula_opt_bin("python@3.14")/"python3.14"
 
     (bin/"omnisuite").write <<~EOS
       #!/bin/bash

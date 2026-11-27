@@ -5,12 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 pick_python() {
-  for candidate in python3.13 python3.12 python3.11 python3; do
+  for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
     if ! command -v "$candidate" >/dev/null 2>&1; then
       continue
     fi
 
-    if "$candidate" -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] <= (3, 13) else 1)'; then
+    if "$candidate" -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] <= (3, 14) else 1)'; then
       printf '%s\n' "$candidate"
       return 0
     fi
@@ -26,7 +26,7 @@ else
 fi
 
 if [[ -z "${PYTHON_BIN:-}" ]]; then
-  printf 'Python 3.11, 3.12, or 3.13 is required for OmniSuite.\n' >&2
+  printf 'Python 3.11, 3.12, 3.13, or 3.14 is required for OmniSuite.\n' >&2
   exit 1
 fi
 
