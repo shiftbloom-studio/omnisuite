@@ -1,7 +1,7 @@
 # OmniSuite
 
 Local voice synthesis & cloning server, built on FastAPI + PyTorch (Apple Metal
-accelerated). Implements [k2-fsa/OmniVoice](https://github.com/k2-fsa/OmniVoice).
+or NVIDIA CUDA accelerated). Implements [k2-fsa/OmniVoice](https://github.com/k2-fsa/OmniVoice).
 
 ## Install
 
@@ -35,6 +35,11 @@ Then open <http://localhost:8000>.
 
 - macOS (Apple Silicon recommended) or Linux
 - Python 3.11–3.13 (installed automatically by the Homebrew formula)
+- Optional: an NVIDIA GPU. It is used whenever PyTorch can see it. The Linux
+  wheels from PyPI bring CUDA along. On Windows, install the CUDA build of
+  PyTorch from [pytorch.org](https://pytorch.org/get-started/locally/) before
+  the other requirements, in exactly the version `requirements.txt` pins. With
+  any other version, pip replaces it with the CPU build.
 
 ## License
 

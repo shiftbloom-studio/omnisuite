@@ -22,6 +22,14 @@ class TorchRuntimeConfig:
 
 def get_torch_runtime_config() -> TorchRuntimeConfig:
     """Select the best portable runtime for the current machine."""
+    if torch.cuda.is_available():
+        # Half precision is what OmniVoice recommends on NVIDIA GPUs.
+        return TorchRuntimeConfig(
+            device_map="cuda",
+            dtype=torch.float16,
+            acceleration="nvidia-cuda",
+        )
+
     if torch.backends.mps.is_available():
         return TorchRuntimeConfig(
             device_map="mps",
