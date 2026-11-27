@@ -46,10 +46,8 @@ WATERMARK_FADE = WATERMARK_RATE // 2  # pieces overlap and cross-fade over this 
 DETECTION_THRESHOLD = 0.5
 
 RECEIPT_LABEL = "studio.shiftbloom.omnisuite.receipt"
-AI_SOURCE_TYPES = (
-    "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
-    "http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia",
-)
+# IPTC digital source types that mean "a model made this", by their last path segment.
+AI_SOURCE_TYPES = ("trainedAlgorithmicMedia", "compositeWithTrainedAlgorithmicMedia")
 
 KEY_LIFETIME = datetime.timedelta(days=3650)
 
@@ -358,18 +356,6 @@ class Marker:
             "title": f"{receipt_id}.wav",
             "assertions": [
                 {
-                    "label": "c2pa.actions.v2",
-                    "data": {
-                        "actions": [
-                            {
-                                "action": "c2pa.created",
-                                "digitalSourceType": AI_SOURCE_TYPES[0],
-                                "softwareAgent": {"name": "OmniSuite"},
-                            }
-                        ]
-                    },
-                },
-                {
                     # Travels with the file, so no text and no voice in here.
                     "label": RECEIPT_LABEL,
                     "data": {
@@ -392,6 +378,11 @@ class Marker:
         signed = io.BytesIO()
         plain.seek(0)
         with signer, c2pa.Builder(manifest) as builder:
+            # Adds the "created by a trained model" action that marks the file as AI-generated.
+            builder.set_intent(
+                c2pa.C2paBuilderIntent.CREATE,
+                c2pa.C2paDigitalSourceType.TRAINED_ALGORITHMIC_MEDIA,
+            )
             builder.sign(signer, "audio/wav", plain, signed)
         wav_bytes = signed.getvalue()
 
@@ -458,7 +449,7 @@ def _read_manifest(path: Path, anchors: list[str], own_serial: str | None) -> di
         (a.get("data", {}) for a in assertions if a.get("label") == RECEIPT_LABEL), {}
     )
     source_types = [
-        action.get("digitalSourceType")
+        str(action.get("digitalSourceType")).rsplit("/", 1)[-1]
         for a in assertions
         if a.get("label", "").startswith("c2pa.actions")
         for action in a.get("data", {}).get("actions", [])
