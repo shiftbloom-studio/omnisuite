@@ -110,6 +110,21 @@ describe("listing a receipt", () => {
     expect((await open.put()).status).toBe(201);
     expect((await open.put(listing(), { id: OTHER_ID })).status).toBe(201);
   });
+
+  it("keeps the ceiling of 2000 a day when its setting is empty, no number or below zero", async () => {
+    const s = stand();
+    await s.env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2000)
+       INSERT INTO receipts (id, voice, mandate, listed_at, created, model, audio_sha256, seconds, sample_rate, watermark_scheme, watermark_tag, signer_name, signer_serial)
+       SELECT 'r' || i, ?, ?, ?, '', '', '', 1, 24000, '', '', '', '' FROM n`,
+    ).bind(VOICE, MANDATE, Math.floor(Date.now() / 1000)).run();
+    for (const setting of [undefined, "", "2k", "-5"]) {
+      s.env.MAX_LISTINGS_PER_DAY = setting;
+      expect((await s.put()).status, `setting ${setting}`).toBe(429);
+    }
+    s.env.MAX_LISTINGS_PER_DAY = "0";
+    expect((await s.put()).status).toBe(201);
+  });
 });
 
 describe("looking a receipt up", () => {
