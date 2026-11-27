@@ -31,6 +31,46 @@ omnisuite
 
 Then open <http://localhost:8000>.
 
+## Receipts
+
+Every file OmniSuite writes is marked as AI-generated, twice:
+
+- A signed [C2PA](https://c2pa.org) manifest inside the file. It says the audio
+  came out of an AI model and carries a receipt id. Change a single sample and
+  the signature no longer fits.
+- An inaudible [AudioSeal](https://github.com/facebookresearch/audioseal)
+  watermark in the sound itself. It is still there after the file was converted
+  and the manifest got lost on the way.
+
+A copy of each receipt stays in `data/receipts`. The text you typed never goes
+into the file.
+
+Check any audio file:
+
+```sh
+omnisuite verify clip.wav
+```
+
+```
+clip.wav: AI-generated, receipt intact
+  receipt    signed by this install (OmniSuite install 3fa9c2d1)
+             5d0c0b9e-7a41-4c0e-9d6b-2f1e8a3b7c55, 2026-11-27T21:03:11+00:00, k2-fsa/OmniVoice
+  watermark  found, tag 3fa2, matches the receipt
+```
+
+From a checkout, run `python receipts.py verify clip.wav`. Add `--json` for
+scripts. The exit code is 0 for an intact receipt, 3 when only the watermark is
+left, 4 when the file changed after signing and 5 when no mark was found.
+
+Each install signs with its own key, made on the first start in `data/keys`.
+To check files from someone else's install, ask for their `data/keys/root.pem`
+and pass it along: `omnisuite verify --trust their-root.pem clip.wav`. The
+`signer.key` next to it is the private part and stays on your machine.
+
+The first start also downloads the AudioSeal weights. And a caveat that belongs
+here: a watermark can be removed by someone who tries hard enough, so a file
+without a mark is not proof that a person spoke it.
+
 ## Requirements
 
 - macOS (Apple Silicon recommended) or Linux

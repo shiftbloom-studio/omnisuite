@@ -19,15 +19,22 @@ class Omnisuite < Formula
       APP="#{libexec}"
       VENV="#{var}/omnisuite/venv"
 
-      if [ ! -x "$VENV/bin/python" ]; then
-        echo "OmniSuite: first run, installing Python dependencies (downloads ~300 MB)..." >&2
+      # Install on the first run, and again when an upgrade changed the requirements.
+      if [ ! -x "$VENV/bin/python" ] || ! cmp -s "$APP/requirements.txt" "$VENV/requirements.txt"; then
+        echo "OmniSuite: installing Python dependencies (downloads ~300 MB)..." >&2
         mkdir -p "$(dirname "$VENV")"
         "#{python}" -m venv "$VENV"
         "$VENV/bin/pip" install --upgrade pip
         "$VENV/bin/pip" install -r "$APP/requirements.txt"
+        cp "$APP/requirements.txt" "$VENV/requirements.txt"
       fi
 
       export PYTORCH_ENABLE_MPS_FALLBACK="${PYTORCH_ENABLE_MPS_FALLBACK:-1}"
+
+      # "omnisuite verify <file>" checks a file's receipt and watermark.
+      if [ "${1:-}" = "verify" ]; then
+        exec "$VENV/bin/python" "$APP/receipts.py" "$@"
+      fi
       exec "$VENV/bin/python" -m uvicorn app:app --app-dir "$APP" --host 127.0.0.1 --port 8000 "$@"
     EOS
   end
