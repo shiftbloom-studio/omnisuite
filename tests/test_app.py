@@ -123,6 +123,41 @@ def test_more_names_can_be_allowed(client, monkeypatch):
     assert http.get("/api/status", headers={"host": "studio.lan:8000"}).status_code == 200
 
 
+def test_a_listed_name_may_carry_a_port():
+    assert server.named_hosts(" Studio.Example.com:8443 , 192.168.1.20,, [fd00::1]:8000 ") == {
+        "studio.example.com",
+        "192.168.1.20",
+        "[fd00::1]",
+    }
+
+
+@pytest.mark.parametrize(
+    "origin, status",
+    [
+        ("https://studio.example.com", 200),
+        ("https://Studio.Example.com:8443", 200),
+        # A listed name only counts as the whole host.
+        ("https://studio.example.com.evil.test", 403),
+        ("https://evil.test/studio.example.com", 403),
+        ("https://studio.example.com@evil.test", 403),
+        ("http://localhost:3000", 403),
+        ("null", 403),
+    ],
+)
+def test_a_proxy_may_hand_requests_on_under_its_own_address(client, monkeypatch, origin, status):
+    """nginx sends the upstream's address as Host unless told otherwise."""
+    http, data_dir = client
+    monkeypatch.setattr(server, "NAMED_HOSTS", {"studio.example.com"})
+    response = http.post(
+        "/api/generate",
+        data={"text": "Hello.", "voice_id": "voice-1"},
+        headers={"host": "127.0.0.1:8000", "origin": origin},
+    )
+    assert response.status_code == status
+    if status == 403:
+        assert list((data_dir / "generations").iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "origin, status",
     [

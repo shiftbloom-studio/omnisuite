@@ -197,18 +197,20 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 # The names this server answers to. Without the check below, a web page elsewhere
 # can point a name of its own at 127.0.0.1 (DNS rebinding) and then read the voices
 # and their clips through the visitor's browser, or have speech made with them.
-ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | {
-    name.strip().lower()
-    for name in os.environ.get("OMNISUITE_ALLOWED_HOSTS", "").split(",")
-    if name.strip()
-}
-
-
 def host_name(host: str) -> str:
     """The host of a Host header, without the port."""
     host = host.strip().lower()
     name, colon, port = host.rpartition(":")
     return name if colon and port.isdigit() else host
+
+
+def named_hosts(names: str) -> set[str]:
+    """The names listed in OMNISUITE_ALLOWED_HOSTS, each without a port."""
+    return {host_name(name) for name in names.split(",") if name.strip()}
+
+
+NAMED_HOSTS = named_hosts(os.environ.get("OMNISUITE_ALLOWED_HOSTS", ""))
+ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | NAMED_HOSTS
 
 
 @app.middleware("http")
@@ -223,12 +225,16 @@ async def only_this_page(request: Request, call_next):
                 "To reach it under another name, list that name in OMNISUITE_ALLOWED_HOSTS."
             },
         )
-    # A browser names the page a request comes from. It has to be this server's own.
+    # A browser names the page a request comes from. It has to be this server's own:
+    # the address the request came to, or a listed name, since a proxy may hand
+    # the request on under an address of its own.
     origin = request.headers.get("origin")
-    if origin is not None and origin.lower().split("://", 1)[-1] != host.strip().lower():
-        return JSONResponse(
-            status_code=403, content={"error": "This request came from another website."}
-        )
+    if origin is not None:
+        page = origin.lower().split("://", 1)[-1]
+        if page != host.strip().lower() and host_name(page) not in NAMED_HOSTS:
+            return JSONResponse(
+                status_code=403, content={"error": "This request came from another website."}
+            )
     return await call_next(request)
 
 

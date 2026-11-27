@@ -33,8 +33,10 @@ Then open <http://localhost:8000>.
 
 OmniSuite only answers requests for `localhost` and `127.0.0.1`, and only from
 its own page. That keeps other websites in your browser away from your voices.
-If you reach it under another name, say through a reverse proxy, list that
-name: `OMNISUITE_ALLOWED_HOSTS=studio.example.com`.
+If you reach it under another name, list that name without a port:
+`OMNISUITE_ALLOWED_HOSTS=studio.example.com`. That goes for a reverse proxy, and
+for another device on your network: start with `omnisuite --host 0.0.0.0` and
+list the PC's address, such as `192.168.1.20`.
 
 ## Receipts
 
