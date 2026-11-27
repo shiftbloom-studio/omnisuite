@@ -91,11 +91,12 @@ def test_file_from_another_install_needs_its_root_to_be_trusted(marker, tmp_path
     other.load()
 
     unknown = verify(path, other)
-    assert unknown["verdict"] == "intact"
+    assert unknown["verdict"] == "untrusted"
     assert unknown["receipt"]["state"] == "valid"
     assert unknown["receipt"]["signed_here"] is False
 
     trusted = verify(path, other, trust=[marker.keys_dir / "root.pem"])
+    assert trusted["verdict"] == "intact"
     assert trusted["receipt"]["state"] == "trusted"
     assert trusted["receipt"]["signed_here"] is False
 
@@ -108,6 +109,7 @@ def test_copied_serial_number_does_not_pass_as_this_install(marker, tmp_path, mo
     assert impostor.load().serial == marker.load().serial
 
     result = verify(path, marker)
+    assert result["verdict"] == "untrusted"
     assert result["receipt"]["state"] == "valid"
     assert result["receipt"]["signed_here"] is False
 
@@ -115,7 +117,7 @@ def test_copied_serial_number_does_not_pass_as_this_install(marker, tmp_path, mo
 def test_text_from_a_file_cannot_drive_the_terminal():
     result = {
         "file": "clip.wav",
-        "verdict": "intact",
+        "verdict": "untrusted",
         "receipt": {
             "state": "valid",
             "id": "id\x1b[2K",
@@ -152,6 +154,39 @@ def test_damaged_manifest_breaks_the_receipt(marker, tmp_path):
     result = verify(path, marker)
     assert result["verdict"] == "broken"
     assert result["receipt"]["problems"]
+
+
+def test_manifest_damaged_at_its_start_breaks_the_receipt(marker, tmp_path):
+    path, _ = make_file(marker, tmp_path)
+    data = bytearray(path.read_bytes())
+    # The box that holds the manifest itself: without it c2pa finds no provenance.
+    inner = data.find(b"jumb", data.find(b"jumb") + 4)
+    data[inner : inner + 4] = b"xxxx"
+    path.write_bytes(data)
+    result = verify(path, marker)
+    assert result["verdict"] == "broken"
+    assert result["receipt"]["signer"] is None
+    assert "damaged, could not be read" in receipts._describe(result)
+
+
+def test_file_cut_off_inside_the_manifest_breaks_the_receipt(marker, tmp_path):
+    path, _ = make_file(marker, tmp_path)
+    data = path.read_bytes()
+    path.write_bytes(data[: data.find(b"jumb") + 300])
+    assert verify(path, marker)["verdict"] == "broken"
+
+
+def test_manifest_chunk_is_only_looked_for_in_wav_files(tmp_path):
+    for name, content in {
+        "empty.wav": b"",
+        "short.wav": b"RIFF\x04\x00\x00\x00WAVE",
+        "text.wav": b"C2PA is mentioned here, but this is no WAV file.",
+        "odd.wav": b"RIFF\x00\x00\x00\x00WAVEjunk\x03\x00\x00\x00abc\x00C2PA\x00\x00\x00\x00",
+    }.items():
+        path = tmp_path / name
+        path.write_bytes(content)
+        assert receipts._has_manifest_chunk(path) is (name == "odd.wav")
+    assert receipts._has_manifest_chunk(tmp_path / "missing.wav") is False
 
 
 def test_watermark_survives_when_the_manifest_is_gone(marker, tmp_path):
@@ -221,6 +256,19 @@ def test_cli_exit_codes(cli, marker, tmp_path, capsys):
     assert "does not prove" in capsys.readouterr().out
 
     assert cli(["verify", str(tmp_path / "missing.wav")]) == 1
+
+
+def test_cli_does_not_pass_a_file_signed_by_a_stranger(cli, tmp_path, capsys):
+    stranger = receipts.Marker(tmp_path / "stranger", watermark=FakeWatermark())
+    path, _ = make_file(stranger, tmp_path)
+    assert cli(["verify", str(path)]) == 6
+    out = capsys.readouterr().out
+    assert "marked as AI-generated, by a signer unknown to this install" in out
+    assert "--trust" in out
+
+    root = str(stranger.keys_dir / "root.pem")
+    assert cli(["verify", "--trust", root, str(path)]) == 0
+    assert "AI-generated, receipt intact" in capsys.readouterr().out
 
 
 def test_cli_json(cli, marker, tmp_path, capsys):

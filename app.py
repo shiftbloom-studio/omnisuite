@@ -184,7 +184,8 @@ def generate_audio(
     )
 
     # Watermark, encode as WAV (soundfile, no ffmpeg needed) and sign
-    audio_np = audio[0].cpu().numpy()
+    # generate() returns one NumPy array per text.
+    audio_np = np.asarray(audio[0])
     return marker.mark(audio_np, 24000, model=MODEL_ID, text=text)
 
 

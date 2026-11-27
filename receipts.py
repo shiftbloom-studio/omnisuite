@@ -52,7 +52,7 @@ AI_SOURCE_TYPES = ("trainedAlgorithmicMedia", "compositeWithTrainedAlgorithmicMe
 KEY_LIFETIME = datetime.timedelta(days=3650)
 
 # Exit codes of ``verify``. 1 is a plain error, 2 is a usage error (argparse).
-EXIT_CODES = {"intact": 0, "stripped": 3, "broken": 4, "unmarked": 5}
+EXIT_CODES = {"intact": 0, "stripped": 3, "broken": 4, "unmarked": 5, "untrusted": 6}
 
 
 # ── Signing keys ─────────────────────────────────────────────────────────────
@@ -410,6 +410,23 @@ class Marker:
 # ── Verifying ────────────────────────────────────────────────────────────────
 
 
+def _has_manifest_chunk(path: Path) -> bool:
+    """True when a WAV file carries a C2PA chunk, whether it can be read or not."""
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(12)
+            if header[:4] != b"RIFF" or header[8:] != b"WAVE":
+                return False
+            while len(chunk := handle.read(8)) == 8:
+                if chunk[:4] == b"C2PA":
+                    return True
+                size = int.from_bytes(chunk[4:], "little")
+                handle.seek(size + size % 2, os.SEEK_CUR)
+    except OSError:
+        pass
+    return False
+
+
 def _read_manifest(path: Path, anchors: list[str], own_serial: str | None) -> dict | None:
     """Read and validate the C2PA manifest of a file. None when there is none."""
     settings: dict = {
@@ -435,8 +452,11 @@ def _read_manifest(path: Path, anchors: list[str], own_serial: str | None) -> di
                 return None
             with reader:
                 store = json.loads(reader.json())
-    except (c2pa.C2paError.NotSupported, c2pa.C2paError.Io, c2pa.C2paError.Other):
-        # Not a format C2PA can carry, or not a file it can parse at all.
+    except (c2pa.C2paError.NotSupported, c2pa.C2paError.Io, c2pa.C2paError.Other) as error:
+        if _has_manifest_chunk(path):
+            # The manifest is still in the file, but cut short or damaged at its start.
+            return {**unreadable, "problems": [str(error)]}
+        # Not a format C2PA can carry, or a file without a manifest.
         return None
     except c2pa.C2paError as error:
         # There is a manifest, but it is damaged beyond reading.
@@ -506,7 +526,10 @@ def verify_file(
 
     ``verdict`` is one of:
 
-    * ``intact``: the manifest is there and the file is unchanged since signing
+    * ``intact``: the manifest is there, the file is unchanged since signing, and
+      it was signed by this install or by one passed in ``trust``
+    * ``untrusted``: the same, but signed with a key nobody vouched for. Anyone
+      can make such a file.
     * ``broken``: the manifest is there but the file changed after signing
     * ``stripped``: no manifest, but the watermark is still in the audio
     * ``unmarked``: neither was found
@@ -526,8 +549,10 @@ def verify_file(
 
     if receipt is None:
         verdict = "stripped" if mark.get("found") else "unmarked"
-    elif receipt["state"] in ("valid", "trusted"):
+    elif receipt["state"] == "trusted":
         verdict = "intact"
+    elif receipt["state"] == "valid":
+        verdict = "untrusted"
     else:
         verdict = "broken"
     return {"file": str(path), "verdict": verdict, "receipt": receipt, "watermark": mark}
@@ -535,6 +560,7 @@ def verify_file(
 
 HEADLINES = {
     "intact": "receipt intact",
+    "untrusted": "receipt intact, but its signer is unknown to this install",
     "broken": "receipt broken, the file changed after it was signed",
     "stripped": "watermarked as AI-generated, no receipt in the file",
     "unmarked": "no mark found",
@@ -557,7 +583,10 @@ def _receipt_lines(receipt: dict | None, verdict: str) -> list[str]:
     elif receipt["state"] == "trusted":
         lines = [f"  receipt    signed by {signer}, which you trust"]
     else:
-        lines = [f"  receipt    signed by {signer}, unknown to this install"]
+        lines = [
+            f"  receipt    signed by {signer}, unknown to this install",
+            "             to accept it, pass that install's root.pem with --trust",
+        ]
     if receipt["id"]:
         made = ", ".join(_printable(receipt[key]) for key in ("id", "created", "model"))
         lines.append(f"             {made}")
@@ -589,6 +618,8 @@ def _describe(result: dict) -> str:
     headline = HEADLINES[verdict]
     if verdict == "intact" and receipt["ai_generated"]:
         headline = "AI-generated, receipt intact"
+    if verdict == "untrusted" and receipt["ai_generated"]:
+        headline = "marked as AI-generated, by a signer unknown to this install"
     lines = [f"{result['file']}: {headline}"]
     lines += _receipt_lines(receipt, verdict)
     lines += _watermark_lines(result["watermark"], receipt is not None)
@@ -609,7 +640,8 @@ def main(argv: list[str] | None = None) -> int:
         "verify",
         help="check a file for a receipt and a watermark",
         description="Exit code: 0 receipt intact, 3 no receipt but watermark "
-        "found, 4 receipt broken, 5 no mark found, 1 error.",
+        "found, 4 receipt broken, 5 no mark found, 6 receipt intact but from "
+        "an unknown signer, 1 error.",
     )
     verify.add_argument("file", type=Path)
     verify.add_argument(

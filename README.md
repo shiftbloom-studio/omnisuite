@@ -60,7 +60,10 @@ clip.wav: AI-generated, receipt intact
 
 From a checkout, run `python receipts.py verify clip.wav`. Add `--json` for
 scripts. The exit code is 0 for an intact receipt, 3 when only the watermark is
-left, 4 when the file changed after signing and 5 when no mark was found.
+left, 4 when the file changed after signing, 5 when no mark was found and 6
+when the receipt is intact but signed by an install you have not trusted.
+Anyone can sign a file with a key of their own, so only 0 means the file is
+what a signer you know says it is.
 
 Each install signs with its own key, made on the first start in `data/keys`.
 To check files from someone else's install, ask for their `data/keys/root.pem`

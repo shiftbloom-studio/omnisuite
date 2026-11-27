@@ -5,7 +5,6 @@ import json
 
 import pytest
 import soundfile as sf
-import torch
 from fastapi.testclient import TestClient
 
 import app as server
@@ -15,7 +14,8 @@ from conftest import SAMPLE_RATE, FakeWatermark, speechlike
 
 class FakeModel:
     def generate(self, **kwargs):
-        return [torch.from_numpy(speechlike(1.0)).unsqueeze(0)]
+        # Like OmniVoice.generate: one 1-D NumPy array per text.
+        return [speechlike(1.0)]
 
 
 class BrokenWatermark(FakeWatermark):

@@ -68,7 +68,7 @@ try:
     audio_tensor = result[0] if isinstance(result, (list, tuple)) else result
     print(f"  Result shape: {audio_tensor.shape}, dtype: {audio_tensor.dtype}")
 
-    audio_np = audio_tensor.cpu().numpy()
+    audio_np = np.asarray(audio_tensor)
     if audio_np.ndim == 2:
         audio_np = audio_np.T
 
