@@ -413,7 +413,7 @@ class Marker:
 def _has_manifest_chunk(path: Path) -> bool:
     """True when a WAV file carries a C2PA chunk, whether it can be read or not."""
     try:
-        with open(path, "rb") as handle:
+        with path.open("rb") as handle:
             header = handle.read(12)
             if header[:4] != b"RIFF" or header[8:] != b"WAVE":
                 return False
