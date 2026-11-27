@@ -250,18 +250,18 @@
   <!-- ── Synthesize ──────────────────────────────────────────── -->
   <div class="panel active" id="panel-synth">
     <div class="field">
-      <label>Voice</label>
+      <label for="synth-voice">Voice</label>
       <select id="synth-voice"></select>
     </div>
 
     <div class="field">
-      <label>Text</label>
+      <label for="synth-text">Text</label>
       <textarea id="synth-text" placeholder="Enter text to synthesize..."></textarea>
     </div>
 
     <div class="row">
       <div class="field">
-        <label>Speed</label>
+        <label for="synth-speed">Speed</label>
         <input type="number" id="synth-speed" value="1.0" min="0.5" max="2.0" step="0.1">
       </div>
       <div>
@@ -285,23 +285,23 @@
 
     <!-- Step 1: Upload -->
     <div id="clone-step-1">
-      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('clone-file').click()">
+      <div class="drop-zone" id="drop-zone" role="button" tabindex="0" onclick="document.getElementById('clone-file').click()" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); document.getElementById('clone-file').click(); }">
         Drop a WAV/MP3 file here or click to browse
       </div>
-      <input type="file" id="clone-file" accept=".wav,.mp3,.flac" style="display:none" onchange="handleCloneFile(this)">
+      <input type="file" id="clone-file" aria-label="Reference audio file" accept=".wav,.mp3,.flac" style="display:none" onchange="handleCloneFile(this)">
       <button class="btn" id="clone-next-1" disabled onclick="cloneNext(2)">Next</button>
     </div>
 
     <!-- Step 2: Transcript + Test -->
     <div id="clone-step-2" style="display:none">
       <div class="field">
-        <label>Transcript</label>
+        <label for="clone-transcript">Transcript</label>
         <textarea id="clone-transcript" placeholder="Type exactly what is said in the audio..."></textarea>
         <p class="hint">Accurate transcript = better voice clone</p>
       </div>
 
       <div class="field">
-        <label>Test Text</label>
+        <label for="clone-test-text">Test Text</label>
         <input type="text" id="clone-test-text" value="Hello, this is a test of my cloned voice.">
       </div>
 
@@ -320,12 +320,12 @@
     <!-- Step 3: Save -->
     <div id="clone-step-3" style="display:none">
       <div class="field">
-        <label>Voice Name</label>
+        <label for="clone-name">Voice Name</label>
         <input type="text" id="clone-name" placeholder="My Voice">
       </div>
 
       <div class="field">
-        <label>Language</label>
+        <label for="clone-language">Language</label>
         <select id="clone-language">
           <option value="en">English</option>
           <option value="de">German</option>
@@ -437,7 +437,7 @@
   async function synthesize() {
     const voiceId = document.getElementById('synth-voice').value;
     const text = document.getElementById('synth-text').value.trim();
-    const speed = parseFloat(document.getElementById('synth-speed').value) || 1.0;
+    const speed = Number.parseFloat(document.getElementById('synth-speed').value) || 1.0;
 
     if (!voiceId || !text) return;
 

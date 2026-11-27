@@ -142,6 +142,13 @@ class TorchCodecMissingError(RuntimeError):
     """Reference audio needs TorchCodec, which isn't installed."""
 
 
+def write_temp_wav(content: bytes) -> str:
+    """Write uploaded audio to a temporary .wav file and return its path."""
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp.write(content)
+        return tmp.name
+
+
 def generation_error(e: Exception) -> JSONResponse:
     """500 response for a failed generation: known causes by name, the rest only in the log."""
     if isinstance(e, TorchCodecMissingError):
@@ -278,10 +285,8 @@ async def clone_test(
     if model_status != "ready":
         return JSONResponse(status_code=503, content={"error": "Model not loaded"})
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        content = await ref_audio.read()
-        tmp.write(content)
-        tmp_path = tmp.name
+    content = await ref_audio.read()
+    tmp_path = await asyncio.to_thread(write_temp_wav, content)
 
     try:
         wav_bytes = await asyncio.to_thread(
