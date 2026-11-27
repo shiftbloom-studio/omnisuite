@@ -117,7 +117,9 @@ async function listReceipt(req: Request, env: Env, voice: string, id: string): P
     return json({ error: answer.message, reason: answer.reason }, 403);
   }
 
-  const cap = Number(env.MAX_LISTINGS_PER_DAY ?? 2000);
+  // An empty or unreadable setting keeps the default: only a plain 0 lifts the ceiling.
+  const set = Number(env.MAX_LISTINGS_PER_DAY || 2000);
+  const cap = Number.isFinite(set) ? set : 2000;
   if (cap > 0) {
     const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM receipts WHERE mandate = ? AND listed_at > ?").bind(answer.mandate, now() - 86400).first<{ n: number }>();
     if (today && today.n >= cap) return apiError(429, "This mandate has listed its share for today. Try again tomorrow.", { "retry-after": "3600" });

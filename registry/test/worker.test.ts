@@ -104,6 +104,11 @@ describe("listing a receipt", () => {
     // another mandate still has its own share
     full.stem.answer = { allowed: true, mandate: "9d3c1f6e-0a61-4c4e-8a57-3a3f3f0f6b22" };
     expect((await full.put(listing(), { id: OTHER_ID })).status).toBe(201);
+
+    // 0 lifts the ceiling
+    const open = stand({ MAX_LISTINGS_PER_DAY: "0" });
+    expect((await open.put()).status).toBe(201);
+    expect((await open.put(listing(), { id: OTHER_ID })).status).toBe(201);
   });
 });
 
