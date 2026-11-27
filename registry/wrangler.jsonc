@@ -1,0 +1,35 @@
+// The receipt registry: Cloudflare Workers config.
+// Before the first deploy, create the database (see README, "Run your own") and
+// replace the <placeholder> below with the ID Wrangler prints.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "omnisuite-registry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "observability": { "enabled": true },
+
+  // Serve on your own (sub)domain. The zone must be on the same Cloudflare account.
+  // OmniSuite installs name this exact origin in OMNISUITE_REGISTRY_URL, and stem lists it in MANDATE_APPS.
+  // "routes": [{ "pattern": "receipts.example.com", "custom_domain": true }],
+  // No workers.dev or preview URLs: a mandate is signed for one origin, and these would be others.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  "vars": {
+    // Optional: the name in the page header (default "receipts").
+    // "SITE_NAME": "receipts",
+    // Optional: who runs this instance (footer) and where your source is (AGPL section 13).
+    // "OPERATOR_NAME": "Jane Doe", "OPERATOR_URL": "https://example.com", "OPERATOR_PLACE": "Berlin",
+    // "SOURCE_URL": "https://github.com/you/omnisuite",
+    // Optional: operator details for /imprint, /impressum, /privacy and /datenschutz (hidden when unset).
+    // "LEGAL": "{\"name\":\"Jane Doe\",\"street\":\"Example St 1\",\"city\":\"12345 Town\",\"country\":{\"en\":\"Germany\",\"de\":\"Deutschland\"},\"email\":\"jane@example.com\",\"authority\":\"Your data protection authority, address\"}"
+  },
+  // Per IP and minute: listings sent by installs, and lookups. namespace_id must be unique in your account.
+  "ratelimits": [
+    { "name": "LIST_RL", "namespace_id": "1301", "simple": { "limit": 60, "period": 60 } },
+    { "name": "READ_RL", "namespace_id": "1302", "simple": { "limit": 120, "period": 60 } }
+  ],
+  "d1_databases": [{ "binding": "DB", "database_name": "omnisuite-registry", "database_id": "<your-d1-database-id>", "migrations_dir": "migrations" }],
+  // stem checks every mandate. "service" is the name of your stem Worker on the same account.
+  "services": [{ "binding": "MANDATES", "service": "stem", "entrypoint": "MandateGateway" }]
+}
