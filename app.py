@@ -23,7 +23,7 @@ from runtime_config import (
 # ── Paths ────────────────────────────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = receipts.DATA_DIR
 VOICES_DIR = DATA_DIR / "voices"
 GENERATIONS_DIR = DATA_DIR / "generations"
 MODELS_DIR = DATA_DIR / "models"

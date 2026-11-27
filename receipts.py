@@ -35,7 +35,9 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-DATA_DIR = Path(__file__).parent / "data"
+# Voices, keys and receipts. The installers point this outside the app folder,
+# so that an upgrade does not start with an empty one.
+DATA_DIR = Path(os.environ.get("OMNISUITE_DATA_DIR") or Path(__file__).parent / "data")
 
 WATERMARK_SCHEME = "audioseal_wm_16bits"
 DETECTOR_SCHEME = "audioseal_detector_16bits"

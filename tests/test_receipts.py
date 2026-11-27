@@ -3,6 +3,9 @@
 import io
 import json
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 import soundfile as sf
@@ -23,6 +26,27 @@ def make_file(marker, tmp_path, name="clip.wav", text="Hello there."):
 def verify(path, marker, **kwargs):
     data_dir = marker.keys_dir.parent
     return receipts.verify_file(path, data_dir, watermark=FakeWatermark(), **kwargs)
+
+
+def test_data_folder_follows_the_environment(tmp_path):
+    """The installers set OMNISUITE_DATA_DIR so that data outlives an upgrade."""
+    code = "import app, receipts; print(receipts.DATA_DIR); print(app.VOICES_DIR)"
+    root = Path(receipts.__file__).parent
+
+    def run(env):
+        result = subprocess.run(
+            [sys.executable, "-c", code], cwd=root, env=env, capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stderr
+        return [Path(line) for line in result.stdout.splitlines()[-2:]]
+
+    env = {k: v for k, v in os.environ.items() if k != "OMNISUITE_DATA_DIR"}
+    assert run(env)[0] == root / "data"
+    elsewhere = tmp_path / "kept"
+    assert run({**env, "OMNISUITE_DATA_DIR": str(elsewhere)}) == [
+        elsewhere,
+        elsewhere / "voices",
+    ]
 
 
 def test_tag_is_stable_and_16_bit():
