@@ -1,0 +1,28 @@
+{
+  "name": "omnisuite-registry",
+  "version": "0.1.0",
+  "description": "A public list of receipts for speech made with OmniSuite, on Cloudflare Workers",
+  "scripts": {
+    "dev": "npm run build:client && wrangler dev",
+    "deploy": "npm run build:client && wrangler deploy",
+    "typecheck": "npm run build:client && tsc -p . && tsc -p tsconfig.client.json",
+    "db:migrate": "wrangler d1 migrations apply omnisuite-registry --remote",
+    "build:client": "esbuild src/client.ts --bundle --format=iife --minify --target=es2020 --outfile=src/generated/app.txt",
+    "test": "npm run build:client && vitest run",
+    "check": "npm run typecheck && vitest run && wrangler deploy --dry-run --outdir=.wrangler/dry-run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261127.1",
+    "@types/node": "^26.6.11",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.2",
+    "wrangler": "^4.169.0"
+  },
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=26"
+  }
+}

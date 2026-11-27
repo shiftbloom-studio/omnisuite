@@ -1,0 +1,4 @@
+# Copy to .dev.vars for `npm run dev`. Nothing here is a secret: the registry has none.
+# Shows the legal pages locally.
+LEGAL={"name":"Jane Doe","street":"Example St 1","city":"12345 Town","country":{"en":"Germany","de":"Deutschland"},"email":"jane@example.com","authority":"Your data protection authority, address"}
+OPERATOR_NAME=Jane Doe
