@@ -54,6 +54,14 @@ def speechlike(seconds=4.0, sample_rate=SAMPLE_RATE, seed=0):
     return (0.4 * signal / np.abs(signal).max()).astype(np.float32)
 
 
+@pytest.fixture(autouse=True)
+def test_client_host(monkeypatch):
+    """The test client calls the server as "testserver"."""
+    import app as server
+
+    monkeypatch.setattr(server, "ALLOWED_HOSTS", server.ALLOWED_HOSTS | {"testserver"})
+
+
 @pytest.fixture
 def marker(tmp_path):
     """A marker with its own data folder and no model download."""

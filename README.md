@@ -31,6 +31,11 @@ omnisuite
 
 Then open <http://localhost:8000>.
 
+OmniSuite only answers requests for `localhost` and `127.0.0.1`, and only from
+its own page. That keeps other websites in your browser away from your voices.
+If you reach it under another name, say through a reverse proxy, list that
+name: `OMNISUITE_ALLOWED_HOSTS=studio.example.com`.
+
 ## Receipts
 
 Every file OmniSuite writes is marked as AI-generated, twice:

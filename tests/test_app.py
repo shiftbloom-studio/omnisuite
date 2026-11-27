@@ -86,3 +86,64 @@ def test_no_audio_leaves_the_server_when_marking_fails(client, monkeypatch):
     assert response.status_code == 500
     assert response.headers["content-type"] == "application/json"
     assert list((data_dir / "generations").iterdir()) == []
+
+
+# ── Who may talk to the server ───────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "host, status",
+    [
+        ("localhost:8000", 200),
+        ("127.0.0.1:8000", 200),
+        ("LOCALHOST", 200),
+        ("[::1]:8000", 200),
+        # A name that someone else pointed at this machine.
+        ("rebind.example.com:8000", 400),
+        ("localhost.example.com", 400),
+        ("127.0.0.1.example.com:8000", 400),
+        ("[::1].example.com", 400),
+        ("localhost:8000:example.com", 400),
+        ("example.com:localhost", 400),
+        ("", 400),
+    ],
+)
+def test_the_server_only_answers_under_its_own_name(client, host, status):
+    http, _ = client
+    for path in ("/api/voices", "/api/voices/voice-1/audio", "/"):
+        assert http.get(path, headers={"host": host}).status_code == status
+    if status == 400:
+        assert "OMNISUITE_ALLOWED_HOSTS" in http.get("/api/voices", headers={"host": host}).json()["error"]
+
+
+def test_more_names_can_be_allowed(client, monkeypatch):
+    http, _ = client
+    assert http.get("/api/status", headers={"host": "studio.lan:8000"}).status_code == 400
+    monkeypatch.setattr(server, "ALLOWED_HOSTS", server.ALLOWED_HOSTS | {"studio.lan"})
+    assert http.get("/api/status", headers={"host": "studio.lan:8000"}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "origin, status",
+    [
+        (None, 200),
+        ("http://localhost:8000", 200),
+        ("http://LOCALHOST:8000", 200),
+        # Another website, another program on this machine, a sandboxed frame.
+        ("https://example.com", 403),
+        ("http://localhost:3000", 403),
+        ("http://localhost", 403),
+        ("null", 403),
+    ],
+)
+def test_a_request_from_another_website_is_turned_down(client, origin, status):
+    http, data_dir = client
+    headers = {"host": "localhost:8000"}
+    if origin is not None:
+        headers["origin"] = origin
+    response = http.post(
+        "/api/generate", data={"text": "Hello.", "voice_id": "voice-1"}, headers=headers
+    )
+    assert response.status_code == status
+    if status == 403:
+        assert list((data_dir / "generations").iterdir()) == []

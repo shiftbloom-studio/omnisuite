@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -193,6 +193,43 @@ def generate_audio(
 
 app = FastAPI(title="OmniSuite")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+# The names this server answers to. Without the check below, a web page elsewhere
+# can point a name of its own at 127.0.0.1 (DNS rebinding) and then read the voices
+# and their clips through the visitor's browser, or have speech made with them.
+ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | {
+    name.strip().lower()
+    for name in os.environ.get("OMNISUITE_ALLOWED_HOSTS", "").split(",")
+    if name.strip()
+}
+
+
+def host_name(host: str) -> str:
+    """The host of a Host header, without the port."""
+    host = host.strip().lower()
+    name, colon, port = host.rpartition(":")
+    return name if colon and port.isdigit() else host
+
+
+@app.middleware("http")
+async def only_this_page(request: Request, call_next):
+    """Answer only what is meant for this server and comes from its own page."""
+    host = request.headers.get("host", "")
+    if host_name(host) not in ALLOWED_HOSTS:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "OmniSuite only answers under its own address. "
+                "To reach it under another name, list that name in OMNISUITE_ALLOWED_HOSTS."
+            },
+        )
+    # A browser names the page a request comes from. It has to be this server's own.
+    origin = request.headers.get("origin")
+    if origin is not None and origin.lower().split("://", 1)[-1] != host.strip().lower():
+        return JSONResponse(
+            status_code=403, content={"error": "This request came from another website."}
+        )
+    return await call_next(request)
 
 
 @app.get("/", response_class=HTMLResponse)
