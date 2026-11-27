@@ -19,13 +19,13 @@ pick_python() {
   return 1
 }
 
-if [ -x ".venv/bin/python" ]; then
+if [[ -x ".venv/bin/python" ]]; then
   PYTHON_BIN=".venv/bin/python"
 else
   PYTHON_BIN="$(pick_python || true)"
 fi
 
-if [ -z "${PYTHON_BIN:-}" ]; then
+if [[ -z "${PYTHON_BIN:-}" ]]; then
   printf 'Python 3.11, 3.12, or 3.13 is required for OmniSuite.\n' >&2
   exit 1
 fi

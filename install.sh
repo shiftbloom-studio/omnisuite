@@ -2,7 +2,7 @@
 # OmniSuite installer
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/shiftbloom-studio/omnisuite/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/shiftbloom-studio/omnisuite/main/install.sh | bash
 #
 # Installs OmniSuite into ~/.omnisuite and links `omnisuite` into ~/.local/bin.
 # Requires Python 3.11–3.13 and a working internet connection.
@@ -29,22 +29,22 @@ for candidate in python3.13 python3.12 python3.11 python3; do
     break
   fi
 done
-[ -n "$PYTHON_BIN" ] || fail "Python 3.11–3.13 is required (e.g. brew install python@3.13)."
+[[ -n "$PYTHON_BIN" ]] || fail "Python 3.11–3.13 is required (e.g. brew install python@3.13)."
 info "Using Python: $PYTHON_BIN"
 
 # ── 2. Download the release bundle + its checksum ───────────────────────────
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 info "Downloading OmniSuite v$VERSION"
-curl -fsSL "$REPO/releases/download/v$VERSION/omnisuite-v$VERSION.zip"    -o "$TMP/bundle.zip"
-curl -fsSL "$REPO/releases/download/v$VERSION/omnisuite-v$VERSION.sha256" -o "$TMP/bundle.sha256"
+curl --proto '=https' --tlsv1.2 -fsSL "$REPO/releases/download/v$VERSION/omnisuite-v$VERSION.zip"    -o "$TMP/bundle.zip"
+curl --proto '=https' --tlsv1.2 -fsSL "$REPO/releases/download/v$VERSION/omnisuite-v$VERSION.sha256" -o "$TMP/bundle.sha256"
 
 # ── 3. Verify the sha256 checksum (sha256sum on Linux, shasum on macOS) ────
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
-[ "$(sha256_of "$TMP/bundle.zip")" = "$(awk '{print $1}' "$TMP/bundle.sha256")" ] \
+[[ "$(sha256_of "$TMP/bundle.zip")" == "$(awk '{print $1}' "$TMP/bundle.sha256")" ]] \
   || fail "Checksum verification failed - aborting."
 
 # ── 4. Extract into the install directory ──────────────────────────────────

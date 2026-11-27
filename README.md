@@ -17,7 +17,7 @@ The first `omnisuite` run installs Python dependencies (~300 MB) into a virtuale
 ### curl
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/shiftbloom-studio/omnisuite/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/shiftbloom-studio/omnisuite/main/install.sh | bash
 ```
 
 Installs to `~/.omnisuite` and links `omnisuite` into `~/.local/bin`. Add
