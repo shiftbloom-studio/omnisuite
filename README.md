@@ -129,7 +129,9 @@ with a passkey. From then on:
   What was listed before stays listed, with the day the mandate ended.
 
 A listing that could not be sent, because the machine was offline, waits in
-`data/outbox` and goes out with the next one.
+`data/outbox` and goes out with the next one. The first listing of a receipt id
+keeps it. If a file got out in that time and someone else listed its id first,
+OmniSuite says so in the console, and `omnisuite verify` says it for that file.
 
 What a mandate does not prove: that the account holder is the speaker. It
 shows that someone with a passkey at that stem server signed for this voice on

@@ -536,16 +536,22 @@ def _receipts_with_tag(receipts_dir: Path, tag: str) -> list[dict]:
     return matches
 
 
-def _voice_on_record(receipts_dir: Path, receipt: dict | None) -> dict | None:
-    """What this install noted about the voice of a file it signed itself."""
+def _on_record(receipts_dir: Path, receipt: dict | None) -> dict:
+    """What this install noted about a file it signed itself."""
     if receipt is None or not receipt["signed_here"]:
-        return None
+        return {}
     try:
         # The id came out of a file. Only a real UUID may name a receipt here.
         name = f"{uuid.UUID(str(receipt['id']))}.json"
-        voice = json.loads((receipts_dir / name).read_text()).get("voice")
-    except (OSError, ValueError, AttributeError):
-        return None
+        noted = json.loads((receipts_dir / name).read_text())
+    except (OSError, ValueError):
+        return {}
+    return noted if isinstance(noted, dict) else {}
+
+
+def _voice_on_record(receipts_dir: Path, receipt: dict | None) -> dict | None:
+    """What this install noted about the voice of a file it signed itself."""
+    voice = _on_record(receipts_dir, receipt).get("voice")
     if not isinstance(voice, dict) or "enrolment" not in voice:
         return None
     return {"enrolment": str(voice["enrolment"])}
@@ -556,11 +562,14 @@ def lookup_url(registry: str, receipt_id: str) -> str:
     return f"{registry}/r/{uuid.UUID(str(receipt_id))}"
 
 
-def _registry_named(receipt: dict | None, own_registry: str | None) -> dict | None:
+def _registry_named(
+    receipt: dict | None, own_registry: str | None, receipts_dir: Path | None = None
+) -> dict | None:
     """The public list a file says its receipt is on.
 
     Reading a file never calls that list. And a file can name any address, so
     only the registry this install is set up with is turned into a link.
+    ``taken`` is there when this install found the id listed by someone else.
     """
     if receipt is None or receipt["state"] not in ("trusted", "valid"):
         return None
@@ -570,9 +579,12 @@ def _registry_named(receipt: dict | None, own_registry: str | None) -> dict | No
     if own_registry is None or named != own_registry:
         return {"origin": named, "url": None}
     try:
-        return {"origin": named, "url": lookup_url(named, receipt["id"])}
+        found = {"origin": named, "url": lookup_url(named, receipt["id"])}
     except ValueError:
         return None
+    if receipts_dir is not None and _on_record(receipts_dir, receipt).get("listing") == "taken":
+        found["taken"] = True
+    return found
 
 
 def verify_file(
@@ -630,7 +642,7 @@ def verify_file(
         "receipt": receipt,
         "watermark": mark,
         "voice": _voice_on_record(data_dir / "receipts", receipt),
-        "registry": _registry_named(receipt, registry),
+        "registry": _registry_named(receipt, registry, data_dir / "receipts"),
     }
 
 
@@ -711,6 +723,8 @@ def _describe(result: dict) -> str:
     named = result.get("registry")
     if named and named["url"]:
         lines.append(f"  registry   {named['url']}")
+        if named.get("taken"):
+            lines.append("             not this file: someone else listed this receipt id first")
     elif named:
         lines.append(
             f"  registry   names {_printable(named['origin'])}, which this install does not use"

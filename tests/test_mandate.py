@@ -179,9 +179,13 @@ class Stand:
             claims = self.authorize(method, path, headers)
         except Refused as refusal:
             return 403, {}, {"error": "Not allowed.", "reason": refusal.reason}
+        body = json.loads(raw)
         if path in self.listed:
-            return 409, {}, {"error": "Already listed."}
-        self.listed[path] = {"body": json.loads(raw), "mandate": claims["jti"]}
+            # The same details again are fine. Other details under a listed id are not.
+            if self.listed[path]["body"] == body:
+                return 200, {}, {"id": path.rsplit("/", 1)[-1]}
+            return 409, {}, {"error": "This receipt id is already listed with other details.", "reason": "conflict"}
+        self.listed[path] = {"body": body, "mandate": claims["jti"]}
         return 201, {}, {"id": path.rsplit("/", 1)[-1]}
 
     def authorize(self, method, path, headers):
@@ -693,7 +697,44 @@ def test_only_receipts_of_the_signed_voice_are_listed(stand, voice_dir):
     assert mandate.list_receipt(stand.where, "f" * 64, signed, receipt) == "refused"
     assert mandate.list_receipt(stand.where, voice, signed, {**receipt, "id": "not-a-uuid"}) == "refused"
     assert mandate.list_receipt(stand.where, voice, signed, receipt) == "listed"
+    # Sent once more, say after an answer that got lost: the registry knows it.
+    assert mandate.list_receipt(stand.where, voice, signed, receipt) == "listed"
     assert list(stand.listed) == [f"/voices/{voice}/receipts/{receipt['id']}"]
+
+
+def test_an_id_someone_else_listed_first_does_not_count_as_listed(stand, voice_dir, marker, tmp_path, capsys):
+    data_dir = voice_dir.parent.parent
+    voice = signed_voice(stand, voice_dir)
+    marker.load()
+    wav_bytes, receipt = marker.mark(
+        np.zeros(24000, dtype=np.float32),
+        24000,
+        model="m",
+        voice={"id": "ada", "enrolment": "read-aloud"},
+        registry=stand.registry,
+    )
+    # The file got out before its receipt reached the registry, and someone
+    # with a mandate of their own put its id on the list for another file.
+    path = f"/voices/{voice}/receipts/{receipt['id']}"
+    theirs = {**mandate.listing(receipt), "audio": {**receipt["audio"], "sha256": "ee" * 32}}
+    stand.listed[path] = {"body": theirs, "mandate": "someone-else"}
+
+    outbox = mandate.Outbox(data_dir)
+    outbox.add(receipt["id"], "ada")
+    outbox.send(stand.where)
+    # Not tried again, their listing is untouched, and the console says so.
+    assert outbox.waiting() == [] and stand.listed[path]["body"] == theirs
+    assert f"Receipt {receipt['id']} is NOT listed" in capsys.readouterr().out
+    # The mandate is not to blame.
+    assert mandate.standing(mandate.load_wallet(voice_dir, stand.where, voice)) is not None
+
+    # verify says it for this file from then on.
+    file = tmp_path / "out.wav"
+    file.write_bytes(wav_bytes)
+    result = receipts.verify_file(file, data_dir, watermark=FakeWatermark(), registry=stand.registry)
+    assert result["verdict"] == "intact" and result["registry"]["taken"] is True
+    assert "someone else listed this receipt id first" in receipts._describe(result)
+    assert [p.name for p in (data_dir / "receipts").iterdir()] == [f"{receipt['id']}.json"]
 
 
 # ── The server ───────────────────────────────────────────────────────────────

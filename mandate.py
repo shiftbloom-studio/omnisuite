@@ -480,9 +480,10 @@ def listing_url(registry: str, voice: str, receipt_id: str) -> str:
 def list_receipt(where: Services, voice: str, signed: dict, receipt: dict) -> str:
     """Put one receipt on the registry's list.
 
-    Returns ``listed``, ``later`` (try again), ``refused`` (the registry will not
-    take this one) or, when the mandate is over, the reason stem gives for that.
-    Only a refusal that is about this receipt counts as ``refused``.
+    Returns ``listed``, ``later`` (try again), ``taken`` (the id is on the list
+    with other details), ``refused`` (the registry will not take this one) or,
+    when the mandate is over, the reason stem gives for that. Only a refusal that
+    is about this receipt counts as ``refused``.
     """
     try:
         url = listing_url(where.registry, voice, str(receipt.get("id")))
@@ -497,8 +498,15 @@ def list_receipt(where: Services, voice: str, signed: dict, receipt: dict) -> st
         status, answer = send("PUT", url, body, headers)
     except Unreachable:
         return "later"
-    if status in (200, 201, 409):  # 409: it is on the list already
+    if status in (200, 201):  # 200: this install listed it before
         return "listed"
+    if status == 409:
+        # Listed with other details, so not by this install: the first listing of an id keeps it.
+        print(
+            f"Receipt {receipt['id']} is NOT listed: its id is on the registry's list with other "
+            f"details, put there by someone else. See {where.registry}/r/{receipt['id']}"
+        )
+        return "taken"
     reason = answer.get("reason") if status in (401, 403) else None
     if reason in ENDED:
         return reason
@@ -572,6 +580,11 @@ class Outbox:
         if signed is None:
             return "refused"
         result = list_receipt(where, voice, signed, receipt)
+        if result == "taken":
+            # Noted with the receipt, so `omnisuite verify` can say it later.
+            draft = self.receipts_dir / f"{note.stem}.{uuid.uuid4().hex}.tmp"
+            draft.write_text(json.dumps({**receipt, "listing": "taken"}, indent=2))
+            os.replace(draft, self.receipts_dir / note.name)
         if result in ENDED:
 
             def end(wallet: dict) -> None:
