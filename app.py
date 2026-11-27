@@ -217,7 +217,8 @@ def generate_audio(
     audio = model.generate(
         text=text,
         ref_audio=ref_audio_path,
-        ref_text=ref_text,
+        # Never None: generate() would then load Whisper on its own to transcribe the clip.
+        ref_text=ref_text or "",
         speed=speed,
         preprocess_prompt=False,
     )
@@ -392,7 +393,7 @@ async def enrol_start(language: str = Form("en")):
         "sentence": challenge.sentence,
         "language": challenge.language,
         "expires_in": enrolment.CHALLENGE_SECONDS,
-        "max_seconds": enrolment.MAX_TAKE_SECONDS,
+        "max_seconds": enrolment.RECORD_SECONDS,
     }
 
 
@@ -408,6 +409,8 @@ async def enrol_finish(
     name = name.strip()
     if not name:
         return JSONResponse(status_code=400, content={"error": "Give the voice a name."})
+    if len(name) > enrolment.MAX_NAME_LENGTH:
+        return JSONResponse(status_code=400, content={"error": "That name is too long."})
 
     try:
         audio, sample_rate = enrolment.read_take(

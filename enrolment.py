@@ -26,8 +26,12 @@ MAX_OPEN_CHALLENGES = 100
 # Whisper mishears a word now and then. Three in twenty may differ.
 MAX_WORD_ERROR_RATE = 0.15
 MIN_TAKE_SECONDS = 3.0
-# Whisper takes at most 30 seconds in one piece.
-MAX_TAKE_SECONDS = 25.0
+# The page stops recording here. A stopped recording runs a moment longer than
+# its clock, and Whisper takes at most 30 seconds in one piece.
+RECORD_SECONDS = 25
+MAX_TAKE_SECONDS = 28.0
+SAMPLE_RATES = range(8000, 192001)
+MAX_NAME_LENGTH = 100
 MAX_TAKE_BYTES = 16 * 1024 * 1024
 # Quiet is what stays this far under the loudest moment of a take (-40 dB).
 QUIET_BELOW_PEAK = 0.01
@@ -150,7 +154,7 @@ GERMAN = {
         "Der fleißige Kellner",
         "Die vorsichtige Pilotin",
         "Der junge Tischler",
-        "Meine kleine Cousine",
+        "Meine kleine Nichte",
     ],
     "action": [
         ("reparierte", "die kaputte Uhr"),
@@ -197,7 +201,7 @@ GERMAN = {
         "am Rand des Waldes",
         "auf dem leeren Marktplatz",
         "neben der Gartenmauer",
-        "in dem kleinen Laden",
+        "im kleinen Laden",
         "an der Ecke beim Bäcker",
         "vor der Bibliothek",
         "in der schmalen Gasse",
@@ -305,10 +309,13 @@ class Challenges:
 
 
 def words(text: str) -> list[str]:
-    """Letters only, in one case, so that punctuation and capitals do not count."""
+    """Letters only, in one case, so that punctuation and capitals do not count.
+
+    Apostrophes and hyphens join: Whisper may write "Garten-Mauer" for "Gartenmauer".
+    """
     text = unicodedata.normalize("NFKC", text).casefold()
     return "".join(
-        ch if ch.isalpha() else "" if ch in "'’" else " " for ch in text
+        ch if ch.isalpha() else "" if ch in "'’-" else " " for ch in text
     ).split()
 
 
@@ -363,6 +370,8 @@ def read_take(content: bytes) -> tuple[np.ndarray, int]:
         audio, sample_rate = sf.read(io.BytesIO(content), dtype="float32", always_2d=True)
     except Exception as error:  # soundfile raises its own error types
         raise TakeError("That recording could not be read.") from error
+    if sample_rate not in SAMPLE_RATES:
+        raise TakeError("That recording could not be read.")
     if len(audio) > MAX_TAKE_SECONDS * sample_rate:
         raise TakeError("That was too long. Read just the one sentence.")
     audio = trim_quiet_ends(audio.mean(axis=1), sample_rate)

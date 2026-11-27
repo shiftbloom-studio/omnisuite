@@ -75,6 +75,7 @@ def test_german_sharp_s_and_umlauts_compare_equal_to_themselves():
     sentence = "Der fleißige Kellner zählte die leeren Flaschen, und niemand fragte warum."
     assert enrolment.matches(sentence, "der fleissige Kellner zählte die leeren Flaschen und niemand fragte warum")[0]
     assert enrolment.words("Bäcker's Brücke") == ["bäckers", "brücke"]
+    assert enrolment.words("Garten-Mauer - und so") == ["gartenmauer", "und", "so"]
 
 
 def test_word_errors_counts_swaps_gaps_and_extras():
@@ -201,6 +202,19 @@ def test_a_silent_take_is_turned_down():
         enrolment.read_take(buffer.getvalue())
 
 
+def test_a_take_may_run_a_moment_past_the_clock_of_the_page():
+    seconds = enrolment.RECORD_SECONDS + 0.5
+    audio, sample_rate = enrolment.read_take(wav(seconds, sample_rate=8000))
+    assert len(audio) / sample_rate == pytest.approx(seconds, abs=0.05)
+
+
+def test_a_take_at_an_absurd_sample_rate_is_turned_down():
+    buffer = io.BytesIO()
+    sf.write(buffer, speechlike(4.0), 1000, format="WAV", subtype="PCM_16")
+    with pytest.raises(enrolment.TakeError, match="could not be read"):
+        enrolment.read_take(buffer.getvalue())
+
+
 def test_the_reference_clip_is_a_plain_wav():
     audio, sample_rate = enrolment.read_take(wav(4.0))
     clip, clip_rate = sf.read(io.BytesIO(enrolment.reference_wav(audio, sample_rate)))
@@ -232,6 +246,8 @@ class FakeModel:
         return self.hears
 
     def generate(self, **kwargs):
+        # With None, OmniVoice would load Whisper itself, past the server's lock.
+        assert isinstance(kwargs["ref_text"], str)
         return [speechlike(1.0)]
 
 
@@ -282,6 +298,8 @@ def test_start_hands_out_a_sentence(studio):
     assert first["sentence"] != second["sentence"]
     assert first["challenge_id"] != second["challenge_id"]
     assert first["expires_in"] == enrolment.CHALLENGE_SECONDS
+    # The page stops before the server would turn a take down.
+    assert first["max_seconds"] < enrolment.MAX_TAKE_SECONDS
 
 
 def test_start_turns_down_other_languages_and_waits_for_the_model(studio, monkeypatch):
@@ -345,6 +363,8 @@ def test_a_take_that_cannot_be_used_costs_no_try(studio):
     for content in (b"not audio", wav(1.0)):
         assert finish(http, challenge["challenge_id"], content).status_code == 400
     assert finish(http, challenge["challenge_id"], name="   ").status_code == 400
+    too_long = "a" * (enrolment.MAX_NAME_LENGTH + 1)
+    assert finish(http, challenge["challenge_id"], name=too_long).status_code == 400
     model.fails = True
     assert finish(http, challenge["challenge_id"]).status_code == 500
     model.fails = False
@@ -395,6 +415,17 @@ def test_receipt_says_so_when_the_voice_came_from_an_uploaded_clip(studio, tmp_p
     assert "voice      not enrolled, taken from an uploaded clip" in receipts._describe(result)
     listed = [v for v in http.get("/api/voices").json() if v["id"] == saved["id"]]
     assert listed[0]["enrolled"] is False
+
+
+def test_a_voice_without_a_transcript_does_not_make_the_model_transcribe(studio, tmp_path):
+    http, _, data_dir = studio
+    voice_dir = data_dir / "voices" / "by-hand"
+    voice_dir.mkdir()
+    (voice_dir / "ref.wav").write_bytes(wav(4.0))
+    (voice_dir / "profile.json").write_text(json.dumps({"id": "by-hand", "ref_text": None}))
+
+    result, _ = verify(http, data_dir, tmp_path, "by-hand")
+    assert result["verdict"] == "intact"
 
 
 def test_swapping_the_clip_afterwards_ends_the_enrolment(studio, tmp_path):
