@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import enrolment
+import mandate
 import receipts
 from runtime_config import (
     describe_torch_runtime,
@@ -120,6 +121,10 @@ marker = receipts.Marker(DATA_DIR)
 challenges = enrolment.Challenges()
 asr_loaded = False
 asr_lock = threading.Lock()
+# Where the owner of a voice signs for it, and where receipts are listed. None: off.
+services = mandate.services()
+# Receipts on their way to the registry.
+outbox = mandate.Outbox(DATA_DIR)
 
 
 def load_model():
@@ -138,6 +143,9 @@ def load_model():
         marker.load()
         model_status = "ready"
         print(f"Model loaded ({describe_torch_runtime(torch_runtime)})")
+        if services is not None:
+            # Receipts that did not reach the registry last time.
+            outbox.send_in_background(services)
     except Exception as e:
         model_status = "error"
         # Details stay in the server console; the status endpoint only reports a failure.
@@ -200,12 +208,24 @@ def voice_claim(voice_dir: Path, profile: dict) -> dict:
     return claim
 
 
+def signable(profile: dict, claim: dict) -> str | None:
+    """The name a voice can be signed for, when mandates are on and it qualifies.
+
+    Only a voice enrolled by reading: the mandate is for the clip that passed,
+    and the voice goes by the hash of that clip.
+    """
+    if services is None or claim["enrolment"] != "read-aloud":
+        return None
+    return profile["enrolment"]["ref_sha256"]
+
+
 def generate_audio(
     text: str,
     ref_audio_path: str,
     ref_text: str,
     speed: float = 1.0,
     voice: dict | None = None,
+    registry: str | None = None,
 ) -> tuple[bytes, dict]:
     """Generate speech, return the marked WAV bytes and their receipt."""
     if model is None:
@@ -226,7 +246,9 @@ def generate_audio(
     # Watermark, encode as WAV (soundfile, no ffmpeg needed) and sign
     # generate() returns one NumPy array per text.
     audio_np = np.asarray(audio[0])
-    return marker.mark(audio_np, 24000, model=MODEL_ID, text=text, voice=voice)
+    return marker.mark(
+        audio_np, 24000, model=MODEL_ID, text=text, voice=voice, registry=registry
+    )
 
 
 # ── FastAPI app ──────────────────────────────────────────────────────────────
@@ -266,6 +288,11 @@ async def list_voices():
                 profile = json.loads(profile_path.read_text())
                 claim = voice_claim(voice_dir, profile)
                 profile["enrolled"] = claim["enrolment"] == "read-aloud"
+                signed_as = signable(profile, claim)
+                if signed_as:
+                    profile["mandate"] = mandate.state(
+                        mandate.load_wallet(voice_dir, services, signed_as)
+                    )
                 voices.append(profile)
             except Exception:
                 pass
@@ -297,6 +324,13 @@ async def generate(
         profile = json.loads(profile_path.read_text())
     ref_text = profile.get("ref_text", "")
 
+    # While the owner's mandate stands, the file names the registry and is listed there.
+    registry = None
+    claim = voice_claim(voice_dir, profile)
+    signed_as = signable(profile, claim)
+    if signed_as and mandate.standing(mandate.load_wallet(voice_dir, services, signed_as)):
+        registry = services.registry
+
     try:
         wav_bytes, receipt = await asyncio.to_thread(
             generate_audio,
@@ -304,7 +338,8 @@ async def generate(
             str(ref_wav),
             ref_text,
             speed,
-            voice_claim(voice_dir, profile),
+            claim,
+            registry,
         )
     except Exception as e:
         return generation_error(e)
@@ -314,13 +349,13 @@ async def generate(
     gen_path = GENERATIONS_DIR / f"{gen_id}.wav"
     gen_path.write_bytes(wav_bytes)
 
-    return Response(
-        content=wav_bytes,
-        media_type="audio/wav",
-        headers={
-            "X-Generation-Id": gen_id,
-        },
-    )
+    headers = {"X-Generation-Id": gen_id}
+    if registry:
+        outbox.add(gen_id, voice_dir.name)
+        outbox.send_in_background(services)
+        headers["X-Receipt-Url"] = receipts.lookup_url(registry, gen_id)
+
+    return Response(content=wav_bytes, media_type="audio/wav", headers=headers)
 
 
 @app.post("/api/clone/test")
@@ -475,6 +510,57 @@ async def enrol_finish(
     }
     (voice_dir / "profile.json").write_text(json.dumps(profile, indent=2))
     return {**profile, "enrolled": True}
+
+
+def voice_to_sign(voice_id: str) -> tuple[Path, dict, str] | JSONResponse:
+    """The folder, profile and outside name of a voice that can carry a mandate."""
+    if services is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Voice mandates are not set up on this server."},
+        )
+    voice_dir = voice_path(voice_id)
+    try:
+        profile = json.loads((voice_dir / "profile.json").read_text()) if voice_dir else None
+    except (OSError, ValueError):
+        profile = None
+    if not isinstance(profile, dict):
+        return JSONResponse(status_code=404, content={"error": "Not found"})
+    signed_as = signable(profile, voice_claim(voice_dir, profile))
+    if signed_as is None:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "Only a voice enrolled by reading a sentence can be confirmed."},
+        )
+    return voice_dir, profile, signed_as
+
+
+@app.post("/api/voices/{voice_id}/mandate")
+async def mandate_ask(voice_id: str):
+    """Ask the owner of a voice to confirm it with a passkey."""
+    found = voice_to_sign(voice_id)
+    if isinstance(found, JSONResponse):
+        return found
+    voice_dir, profile, signed_as = found
+    try:
+        return await asyncio.to_thread(
+            mandate.ask, services, voice_dir, signed_as, str(profile.get("name", ""))
+        )
+    except mandate.MandateError as error:
+        return JSONResponse(status_code=502, content={"error": str(error)})
+
+
+@app.post("/api/voices/{voice_id}/mandate/collect")
+async def mandate_collect(voice_id: str):
+    """Look whether the owner has answered."""
+    found = voice_to_sign(voice_id)
+    if isinstance(found, JSONResponse):
+        return found
+    voice_dir, _profile, signed_as = found
+    try:
+        return await asyncio.to_thread(mandate.collect, services, voice_dir, signed_as)
+    except mandate.MandateError as error:
+        return JSONResponse(status_code=502, content={"error": str(error)})
 
 
 @app.delete("/api/voices/{voice_id}")
