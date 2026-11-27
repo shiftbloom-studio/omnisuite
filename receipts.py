@@ -35,6 +35,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
+import mandate
+
 DATA_DIR = Path(__file__).parent / "data"
 
 WATERMARK_SCHEME = "audioseal_wm_16bits"
@@ -338,12 +340,15 @@ class Marker:
         model: str,
         text: str = "",
         voice: dict | None = None,
+        registry: str | None = None,
     ) -> tuple[bytes, dict]:
         """Watermark and sign ``audio``. Returns the WAV file and its receipt.
 
         ``audio`` is float audio of shape (samples,) or (channels, samples).
         ``voice`` says which voice spoke and how it was enrolled. Like the text,
         it stays in the receipt on this machine and does not go into the file.
+        ``registry`` is the origin of a public list this receipt will be put on.
+        The file names it, so whoever holds the file knows where to look.
         There is no unmarked fallback: if a mark cannot be made, this raises.
         """
         keys = self.load()
@@ -359,21 +364,19 @@ class Marker:
         sf.write(plain, marked.T, sample_rate, format="WAV", subtype="PCM_16")
 
         watermark = {"scheme": WATERMARK_SCHEME, "tag": format_tag(tag)}
+        # Travels with the file, so no text and no voice in here.
+        in_the_file = {
+            "receipt_id": receipt_id,
+            "created": created,
+            "model": model,
+            "watermark": watermark,
+        }
+        if registry:
+            in_the_file["registry"] = registry
         manifest = {
             "claim_generator_info": [{"name": "OmniSuite"}],
             "title": f"{receipt_id}.wav",
-            "assertions": [
-                {
-                    # Travels with the file, so no text and no voice in here.
-                    "label": RECEIPT_LABEL,
-                    "data": {
-                        "receipt_id": receipt_id,
-                        "created": created,
-                        "model": model,
-                        "watermark": watermark,
-                    },
-                },
-            ],
+            "assertions": [{"label": RECEIPT_LABEL, "data": in_the_file}],
         }
         signer = c2pa.Signer.from_info(
             c2pa.C2paSignerInfo(
@@ -410,6 +413,8 @@ class Marker:
         }
         if voice is not None:
             receipt["voice"] = voice
+        if registry:
+            receipt["registry"] = registry
         self.receipts_dir.mkdir(parents=True, exist_ok=True)
         (self.receipts_dir / f"{receipt_id}.json").write_text(
             json.dumps(receipt, indent=2)
@@ -451,6 +456,7 @@ def _read_manifest(path: Path, anchors: list[str], own_serial: str | None) -> di
         "created": None,
         "model": None,
         "tag": None,
+        "registry": None,
         "ai_generated": False,
         "signer": None,
         "signed_here": False,
@@ -492,6 +498,7 @@ def _read_manifest(path: Path, anchors: list[str], own_serial: str | None) -> di
         "created": receipt.get("created"),
         "model": receipt.get("model"),
         "tag": receipt.get("watermark", {}).get("tag"),
+        "registry": receipt.get("registry"),
         "ai_generated": any(s in AI_SOURCE_TYPES for s in source_types),
         "signer": signature.get("common_name"),
         # A serial number is easy to copy, so the chain has to lead to our root too.
@@ -544,8 +551,37 @@ def _voice_on_record(receipts_dir: Path, receipt: dict | None) -> dict | None:
     return {"enrolment": str(voice["enrolment"])}
 
 
+def lookup_url(registry: str, receipt_id: str) -> str:
+    """The public page of a receipt. Only a real UUID may name one."""
+    return f"{registry}/r/{uuid.UUID(str(receipt_id))}"
+
+
+def _registry_named(receipt: dict | None, own_registry: str | None) -> dict | None:
+    """The public list a file says its receipt is on.
+
+    Reading a file never calls that list. And a file can name any address, so
+    only the registry this install is set up with is turned into a link.
+    """
+    if receipt is None or receipt["state"] not in ("trusted", "valid"):
+        return None
+    named = receipt["registry"]
+    if not isinstance(named, str) or not named:
+        return None
+    if own_registry is None or named != own_registry:
+        return {"origin": named, "url": None}
+    try:
+        return {"origin": named, "url": lookup_url(named, receipt["id"])}
+    except ValueError:
+        return None
+
+
 def verify_file(
-    path: Path, data_dir: Path = DATA_DIR, *, trust: list[Path] | None = None, watermark=None
+    path: Path,
+    data_dir: Path = DATA_DIR,
+    *,
+    trust: list[Path] | None = None,
+    watermark=None,
+    registry: str | None = None,
 ) -> dict:
     """Check a file for a receipt and a watermark.
 
@@ -562,6 +598,10 @@ def verify_file(
     ``voice`` is only there for files this install signed and still has the
     receipt of: ``read-aloud`` when the voice was enrolled by reading a
     sentence, ``none`` when it came from an uploaded clip.
+
+    ``registry`` (the argument) is the public list this install uses, if any.
+    In the result it says which list the file names, with the address of the
+    receipt there when it is that same list.
     """
     keys_dir = data_dir / "keys"
     anchors = [p.read_text() for p in (trust or [])]
@@ -590,6 +630,7 @@ def verify_file(
         "receipt": receipt,
         "watermark": mark,
         "voice": _voice_on_record(data_dir / "receipts", receipt),
+        "registry": _registry_named(receipt, registry),
     }
 
 
@@ -667,6 +708,13 @@ def _describe(result: dict) -> str:
     voice = result.get("voice")
     if voice:
         lines.append(f"  voice      {VOICE_LINES.get(voice['enrolment'], VOICE_LINES['none'])}")
+    named = result.get("registry")
+    if named and named["url"]:
+        lines.append(f"  registry   {named['url']}")
+    elif named:
+        lines.append(
+            f"  registry   names {_printable(named['origin'])}, which this install does not use"
+        )
     if verdict == "unmarked":
         lines.append("  This does not prove a person spoke it. Marks can be removed.")
     return "\n".join(lines)
@@ -703,7 +751,13 @@ def main(argv: list[str] | None = None) -> int:
         if not needed.is_file():
             print(f"omnisuite: no such file: {needed}", file=sys.stderr)
             return 1
-    result = verify_file(args.file, DATA_DIR, trust=args.trust)
+    listed_at = mandate.services()
+    result = verify_file(
+        args.file,
+        DATA_DIR,
+        trust=args.trust,
+        registry=listed_at.registry if listed_at else None,
+    )
     print(json.dumps(result, indent=2) if args.json else _describe(result))
     return EXIT_CODES[result["verdict"]]
 

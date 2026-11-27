@@ -188,6 +188,29 @@
     }
 
     .voice-item button:hover { border-color: #ef4444; color: #ef4444; }
+    .voice-item button.sign:hover { border-color: #FF3D00; color: #FF3D00; }
+    .voice-item button:disabled { opacity: 0.5; cursor: default; }
+
+    .voice-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+    .voice-wait {
+      padding: 10px 14px;
+      background: #111;
+      border-left: 3px solid #FF3D00;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #888;
+    }
+
+    .voice-wait a, .receipt-link a { color: #FF3D00; }
+    .voice-wait strong { color: #e0e0e0; letter-spacing: 1px; }
+
+    .receipt-link {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #888;
+      word-break: break-all;
+    }
 
     .step-indicator {
       display: flex;
@@ -325,6 +348,7 @@
     <div id="synth-error"></div>
     <div id="synth-player" class="player" style="display:none">
       <audio id="synth-audio" controls></audio>
+      <div id="synth-receipt" class="receipt-link"></div>
     </div>
   </div>
 
@@ -454,6 +478,7 @@
   <!-- ── Voices ──────────────────────────────────────────────── -->
   <div class="panel" id="panel-voices">
     <div class="voice-list" id="voice-list"></div>
+    <div id="voices-error"></div>
   </div>
 </main>
 
@@ -530,9 +555,86 @@
             ? '<span class="badge" title="Enrolled by reading a sentence aloud">Read aloud</span>'
             : '<span class="badge plain" title="Not enrolled. Receipts say so.">From a clip</span>'}
         </div>
-        <button onclick="deleteVoice('${v.id}')">Delete</button>
+        <div class="voice-actions">
+          <button onclick="deleteVoice('${v.id}')">Delete</button>
+        </div>
       </div>
     `).join('');
+    renderMandates(cloned);
+  }
+
+  // ── Voice mandates ──────────────────────────────────────────
+  // Only there when the server is set up with a stem server and a registry.
+  let mandateTimer = null;
+
+  function renderMandates(cloned) {
+    clearTimeout(mandateTimer);
+    const items = document.querySelectorAll('#voice-list .voice-item');
+    let waiting = false;
+    cloned.forEach((v, i) => {
+      const m = v.mandate;
+      if (!m) return;
+      const item = items[i];
+      if (m.state === 'signed' || m.was === 'signed') {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.title = 'Confirmed with a passkey. Receipts are listed in public while that stands.';
+        badge.textContent = `Signed until ${new Date(m.until).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+        item.firstElementChild.appendChild(badge);
+      }
+      if (m.state === 'waiting' && /^https?:\/\//.test(m.approve_url)) {
+        waiting = true;
+        const wait = document.createElement('div');
+        wait.className = 'voice-wait';
+        const link = document.createElement('a');
+        link.href = m.approve_url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'Open the approval page';
+        const code = document.createElement('strong');
+        code.textContent = m.user_code;
+        wait.append(link, ' and confirm with your passkey. The page should show the code ', code, '. Waiting for your answer...');
+        item.after(wait);
+        return;
+      }
+      const button = document.createElement('button');
+      button.className = 'sign';
+      button.textContent = m.state === 'signed' ? 'Renew' : m.state === 'ended' ? 'Confirm again' : 'Confirm with passkey';
+      button.title = 'Sign off on this voice with a passkey. Its receipts are then listed in public.';
+      button.onclick = () => askMandate(v.id, button);
+      item.lastElementChild.prepend(button);
+    });
+    if (waiting) mandateTimer = setTimeout(pollMandates, 3000);
+  }
+
+  async function askMandate(id, button) {
+    button.disabled = true;
+    showError('voices-error', '');
+    try {
+      const r = await fetch(`/api/voices/${id}/mandate`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'That did not work.');
+      await loadVoices();
+    } catch (e) {
+      showError('voices-error', e.message);
+      button.disabled = false;
+    }
+  }
+
+  async function pollMandates() {
+    let note = '';
+    for (const v of voices.filter(v => v.mandate && v.mandate.state === 'waiting')) {
+      try {
+        const r = await fetch(`/api/voices/${v.id}/mandate/collect`, { method: 'POST' });
+        const d = await r.json();
+        if (d.answer === 'denied') note = 'The request was turned down.';
+        if (d.answer === 'expired') note = 'Nobody answered in time. Ask again.';
+        if (!r.ok && d.error) note = d.error;
+      } catch { /* the next round tries again */ }
+    }
+    // Draws the list again, and plans the next round while someone is still waiting.
+    await loadVoices();
+    showError('voices-error', note);
   }
 
   function esc(text) {
@@ -576,6 +678,17 @@
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       document.getElementById('synth-audio').src = url;
+      const receiptLine = document.getElementById('synth-receipt');
+      const listed = r.headers.get('X-Receipt-Url');
+      receiptLine.textContent = '';
+      if (listed && /^https?:\/\//.test(listed)) {
+        const link = document.createElement('a');
+        link.href = listed;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = listed;
+        receiptLine.append('Public receipt: ', link);
+      }
       document.getElementById('synth-player').style.display = 'block';
     } catch (e) {
       document.getElementById('synth-error').innerHTML = `<div class="error">${e.message}</div>`;

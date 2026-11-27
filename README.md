@@ -96,6 +96,52 @@ The first start also downloads the AudioSeal weights. And a caveat that belongs
 here: a watermark can be removed by someone who tries hard enough, so a file
 without a mark is not proof that a person spoke it.
 
+## Voice mandates
+
+A receipt says which install made a file. It cannot say that the person whose
+voice it is agreed. A voice mandate adds that, and it is optional: without the
+two settings below, nothing here runs and nothing leaves your machine.
+
+You need a [stem](https://github.com/shiftbloom-studio/stem) server, where the
+owner of the voice has an account with a passkey, and a receipt registry that
+takes stem's mandates.
+
+```sh
+export OMNISUITE_STEM_URL=https://id.example.com
+export OMNISUITE_REGISTRY_URL=https://receipts.example.com
+```
+
+Then, under Voices, a voice that was enrolled by reading gets a "Confirm with
+passkey" button. It opens stem's approval page, which shows what is being
+asked: this install may speak with this one voice for 30 days. The owner signs
+with a passkey. From then on:
+
+- Every file made with that voice is listed in the registry. The registry only
+  takes a receipt that comes with the standing mandate, and it learns hashes
+  and marks: the hash of the file, its length, the watermark tag, the signer
+  and how the voice was enrolled. Not the audio, not the text, not even a hash
+  of the text.
+- The file names the registry, so whoever holds it knows where to look. The
+  page shows the address after each generation, and `omnisuite verify` prints
+  it as a `registry` line. Checking a file never calls the registry by itself.
+- The owner can press stop on their stem account page at any time. The next
+  listing is refused, and OmniSuite stops naming the registry in new files.
+  What was listed before stays listed, with the day the mandate ended.
+
+A listing that could not be sent, because the machine was offline, waits in
+`data/outbox` and goes out with the next one.
+
+What a mandate does not prove: that the account holder is the speaker. It
+shows that someone with a passkey at that stem server signed for this voice on
+this install. Reading the sentence covers the other half, that the voice was
+there. The key a mandate is bound to sits in `mandate.json` next to the voice.
+Keep it like a password. Deleting the voice deletes it.
+
+For the stem operator: list the registry's origin in `MANDATE_APPS` with the
+action `speak`. OmniSuite asks for that action under `voices/<hash of the
+voice's clip>/` and sends each receipt as
+`PUT /voices/<hash>/receipts/<receipt id>`.
+
 ## Requirements
 
 - macOS (Apple Silicon recommended) or Linux
