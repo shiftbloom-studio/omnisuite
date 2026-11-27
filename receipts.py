@@ -331,11 +331,19 @@ class Marker:
             return self._keys
 
     def mark(
-        self, audio: np.ndarray, sample_rate: int, *, model: str, text: str = ""
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        *,
+        model: str,
+        text: str = "",
+        voice: dict | None = None,
     ) -> tuple[bytes, dict]:
         """Watermark and sign ``audio``. Returns the WAV file and its receipt.
 
         ``audio`` is float audio of shape (samples,) or (channels, samples).
+        ``voice`` says which voice spoke and how it was enrolled. Like the text,
+        it stays in the receipt on this machine and does not go into the file.
         There is no unmarked fallback: if a mark cannot be made, this raises.
         """
         keys = self.load()
@@ -400,6 +408,8 @@ class Marker:
             "watermark": watermark,
             "signer": {"name": keys.name, "serial": keys.serial},
         }
+        if voice is not None:
+            receipt["voice"] = voice
         self.receipts_dir.mkdir(parents=True, exist_ok=True)
         (self.receipts_dir / f"{receipt_id}.json").write_text(
             json.dumps(receipt, indent=2)
@@ -519,6 +529,21 @@ def _receipts_with_tag(receipts_dir: Path, tag: str) -> list[dict]:
     return matches
 
 
+def _voice_on_record(receipts_dir: Path, receipt: dict | None) -> dict | None:
+    """What this install noted about the voice of a file it signed itself."""
+    if receipt is None or not receipt["signed_here"]:
+        return None
+    try:
+        # The id came out of a file. Only a real UUID may name a receipt here.
+        name = f"{uuid.UUID(str(receipt['id']))}.json"
+        voice = json.loads((receipts_dir / name).read_text()).get("voice")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(voice, dict) or "enrolment" not in voice:
+        return None
+    return {"enrolment": str(voice["enrolment"])}
+
+
 def verify_file(
     path: Path, data_dir: Path = DATA_DIR, *, trust: list[Path] | None = None, watermark=None
 ) -> dict:
@@ -533,6 +558,10 @@ def verify_file(
     * ``broken``: the manifest is there but the file changed after signing
     * ``stripped``: no manifest, but the watermark is still in the audio
     * ``unmarked``: neither was found
+
+    ``voice`` is only there for files this install signed and still has the
+    receipt of: ``read-aloud`` when the voice was enrolled by reading a
+    sentence, ``none`` when it came from an uploaded clip.
     """
     keys_dir = data_dir / "keys"
     anchors = [p.read_text() for p in (trust or [])]
@@ -555,7 +584,13 @@ def verify_file(
         verdict = "untrusted"
     else:
         verdict = "broken"
-    return {"file": str(path), "verdict": verdict, "receipt": receipt, "watermark": mark}
+    return {
+        "file": str(path),
+        "verdict": verdict,
+        "receipt": receipt,
+        "watermark": mark,
+        "voice": _voice_on_record(data_dir / "receipts", receipt),
+    }
 
 
 HEADLINES = {
@@ -564,6 +599,12 @@ HEADLINES = {
     "broken": "receipt broken, the file changed after it was signed",
     "stripped": "watermarked as AI-generated, no receipt in the file",
     "unmarked": "no mark found",
+}
+
+
+VOICE_LINES = {
+    "read-aloud": "enrolled by reading a sentence aloud",
+    "none": "not enrolled, taken from an uploaded clip",
 }
 
 
@@ -623,6 +664,9 @@ def _describe(result: dict) -> str:
     lines = [f"{result['file']}: {headline}"]
     lines += _receipt_lines(receipt, verdict)
     lines += _watermark_lines(result["watermark"], receipt is not None)
+    voice = result.get("voice")
+    if voice:
+        lines.append(f"  voice      {VOICE_LINES.get(voice['enrolment'], VOICE_LINES['none'])}")
     if verdict == "unmarked":
         lines.append("  This does not prove a person spoke it. Marks can be removed.")
     return "\n".join(lines)
