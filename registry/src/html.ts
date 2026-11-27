@@ -34,6 +34,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 var(--sans
 ::selection{background:var(--blush)}
 a{color:var(--root);text-decoration:none;background:linear-gradient(var(--root),var(--root)) 0 100%/0 1px no-repeat;transition:background-size .24s var(--ease)}
 a:hover{background-size:100% 1px}
+code{font:.92em var(--mono)}
 .wrap{max-width:1040px;margin:0 auto;padding:0 clamp(20px,5vw,48px)}
 .label{font:500 11px/1.4 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink60)}
 .label.red{color:var(--root)}
@@ -129,7 +130,7 @@ ${dropZone({ big: "Drop a WAV file here" })}
 <form class="find" method="get" action="/r"><label>Have a receipt id? <input name="id" required maxlength="36" pattern="[0-9a-fA-F\\-]{36}" autocomplete="off" spellcheck="false" placeholder="748e6a9a-9e9c-433b-8677-8e60f4465499"></label><button class="btn ghost" type="submit">Open receipt</button></form>
 <div class="about">
 <section><h2>What a receipt holds</h2><p>The file's fingerprint (a SHA-256 over its bytes), its length, the model that made it and the watermark tag inside the audio. No audio and no text. A receipt only gets on this list while a mandate stands: a person signed with a passkey that one OmniSuite install may list receipts for one voice, and they can stop that at any time.</p></section>
-<section><h2>What it can't tell you</h2><p>Whose voice is in the recording. The list shows that an install with a standing mandate registered this exact file, and when. It doesn't check the other details an install reports. A file without a receipt isn't suspicious for that reason alone, because most recordings were never listed.</p></section>
+<section><h2>What it can't tell you</h2><p>Whose voice is in the recording, or who made the file. The list shows that someone holding a mandate registered this exact file, and when. Anyone with a mandate can list any file, so a listing is no proof that OmniSuite made it. <code>omnisuite verify</code> checks a file's signature. The list doesn't check the other details an install reports either. A file without a receipt isn't suspicious for that reason alone, because most recordings were never listed.</p></section>
 </div>
 </main>`;
   return page(UI.brand.siteTitle, body, { index: true, description: UI.brand.description, css: HOME_CSS });
@@ -179,7 +180,7 @@ export function receiptPage(r: PublicReceipt) {
 <p class="id">${esc(r.id)}</p>
 <div class="state${r.mandate.status === "active" ? "" : " off"}"><div><span class="label">${STATE_LABEL[r.mandate.status]}</span><p>${esc(r.mandate.summary)}</p></div></div>
 <dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
-<p class="note">Everything except "Listed" is what the install reported. The registry checked the mandate, not these details, and it can't tell whose voice is in the recording. <a href="/api/receipts/${esc(r.id)}">This receipt as JSON</a></p>
+<p class="note">Everything except "Listed" is what the install reported. The registry checked the mandate, not these details. It can't tell whose voice is in the recording or who made the file. <a href="/api/receipts/${esc(r.id)}">This receipt as JSON</a></p>
 <h2>Have the file?</h2>
 ${dropZone({ big: "Drop it here to compare it with this receipt", receipt: r.id })}
 </main>`;

@@ -67,10 +67,14 @@ The check page gives one of four answers:
 
 ## What a listing shows, and what it doesn't
 
-- It shows that an install holding a mandate, which a person signed with a
-  passkey at the stem this registry is bound to, listed this fingerprint at this
-  time. `listed_at` is set by the registry. Everything else is what the install
-  reported, and the registry does not check it.
+- It shows that someone holding a mandate, which a person signed with a passkey
+  at the stem this registry is bound to, listed this fingerprint at this time.
+  `listed_at` is set by the registry. Everything else is what they reported, and
+  the registry does not check it.
+- It does not show that OmniSuite made the file. Anyone who holds a mandate can
+  list any file, also a recording of a real person with a manifest written into
+  it that names the receipt. The check page says "listed" for that file too.
+  `omnisuite verify` checks the signature in a file.
 - It does not show whose voice is in the recording. A mandate is signed for the
   hash of a reference clip, not for a person's identity.
 - A file without a receipt is not suspicious for that reason alone. Most
@@ -81,7 +85,9 @@ The check page gives one of four answers:
 - The first listing of a receipt id keeps it. OmniSuite lists a file right after
   writing it. If the registry can't be reached at that moment and the file gets
   out before the retry, someone with a mandate of their own could list its id
-  first, and the page would then show their listing for it.
+  first, and the page would then show their listing for it. The registry answers
+  the late install with 409. OmniSuite then says so in its console, and
+  `omnisuite verify` says it for that file.
 - One mandate can list 2000 receipts a day (`MAX_LISTINGS_PER_DAY`).
 
 ## Answers to an install

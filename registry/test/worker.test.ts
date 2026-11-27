@@ -201,6 +201,14 @@ describe("the pages", () => {
     expect(page).not.toContain(MANDATE);
   });
 
+  it("say that a listing is no proof of who made a file", async () => {
+    const { put, call } = stand();
+    await put();
+    expect(await (await call("GET", "/")).text()).toContain("a listing is no proof that OmniSuite made it");
+    expect(await (await call("GET", `/r/${ID}`)).text()).toContain("or who made the file");
+    expect(await (await call("GET", "/assets/app.js")).text()).toContain("It doesn't show who made the file.");
+  });
+
   it("escape whatever a row holds", async () => {
     const { env, call } = stand();
     await env.DB.prepare(

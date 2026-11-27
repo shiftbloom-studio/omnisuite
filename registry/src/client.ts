@@ -149,7 +149,12 @@ function describe(result: HTMLElement, file: { sha256: string } & Hints, v: Verd
       yes: true,
       label: "listed",
       title: onPage === v.receipt.id ? "This is the listed file." : "This file is on the list.",
-      text: [...other, `It names receipt ${v.receipt.id}, and its fingerprint is the one listed on ${dayOf(v.receipt.listed_at)}.`, v.receipt.mandate.summary],
+      text: [
+        ...other,
+        `It names receipt ${v.receipt.id}, and its fingerprint is the one listed on ${dayOf(v.receipt.listed_at)}.`,
+        v.receipt.mandate.summary,
+        "A listing shows that someone holding a mandate put this exact file on the list. It doesn't show who made the file. For that, check its signature with omnisuite verify.",
+      ],
       links: links(v.receipt.id),
       fingerprint: file.sha256,
     });

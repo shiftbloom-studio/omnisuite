@@ -114,7 +114,7 @@ export type MandateView = {
 };
 
 export const day = (when: string | number | null) => {
-  const date = new Date(typeof when === "number" ? when * 1000 : when ?? NaN);
+  const date = new Date(typeof when === "number" ? when * 1000 : when ?? Number.NaN);
   return Number.isNaN(date.getTime()) ? "an unknown date" : date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 };
 
