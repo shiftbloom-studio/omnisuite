@@ -77,7 +77,7 @@ without a mark is not proof that a person spoke it.
 ## Requirements
 
 - macOS (Apple Silicon recommended) or Linux
-- Python 3.11–3.13 (installed automatically by the Homebrew formula)
+- Python 3.11–3.14 (installed automatically by the Homebrew formula)
 
 ## License
 
