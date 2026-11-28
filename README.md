@@ -74,6 +74,23 @@ The first start also downloads the AudioSeal weights. And a caveat that belongs
 here: a watermark can be removed by someone who tries hard enough, so a file
 without a mark is not proof that a person spoke it.
 
+## Your data
+
+Voices, generated files, the signing key and the receipts live outside the app
+folder, so an upgrade keeps them: in `~/.omnisuite/data` with the install
+script, in `$(brew --prefix)/var/omnisuite/data` with Homebrew. Set
+`OMNISUITE_DATA_DIR` to keep them somewhere else. A checkout uses its own
+`data/` folder.
+
+Version 0.1.0 kept them inside the app folder. The install script takes that
+folder along by itself. `brew upgrade` removes it together with the old
+version, so copy it before you upgrade:
+
+```sh
+mkdir -p "$(brew --prefix)/var/omnisuite"
+cp -R "$(brew --prefix omnisuite)/libexec/data" "$(brew --prefix)/var/omnisuite/data"
+```
+
 ## Requirements
 
 - macOS (Apple Silicon recommended) or Linux

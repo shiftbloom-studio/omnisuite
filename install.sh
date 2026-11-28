@@ -16,6 +16,7 @@ INSTALL_DIR="${OMNISUITE_HOME:-$HOME/.omnisuite}"
 BIN_DIR="${OMNISUITE_BIN_DIR:-$HOME/.local/bin}"
 APP_DIR="$INSTALL_DIR/$VERSION"
 VENV_DIR="$INSTALL_DIR/venv"
+DATA_DIR="${OMNISUITE_DATA_DIR:-$INSTALL_DIR/data}"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -52,16 +53,33 @@ mkdir -p "$APP_DIR"
 "$PYTHON_BIN" -m zipfile -e "$TMP/bundle.zip" "$TMP/extracted"
 cp -R "$TMP/extracted/omnisuite-v$VERSION/." "$APP_DIR/"
 
-# ── 5. Create a virtualenv and install dependencies (~300 MB) ──────────────
+# ── 5. Keep voices, keys and receipts outside the versioned app folder ─────
+# Earlier versions kept them inside it. Take the newest such folder along once.
+if [[ ! -d "$DATA_DIR" ]]; then
+  PREVIOUS=""
+  for candidate in "$INSTALL_DIR"/*/data; do
+    [[ -d "$candidate" ]] || continue
+    if [[ -z "$PREVIOUS" || "$candidate" -nt "$PREVIOUS" ]]; then PREVIOUS="$candidate"; fi
+  done
+  if [[ -n "$PREVIOUS" ]]; then
+    info "Keeping your voices and files from $PREVIOUS"
+    cp -R "$PREVIOUS" "$DATA_DIR"
+  else
+    mkdir -p "$DATA_DIR"
+  fi
+fi
+
+# ── 6. Create a virtualenv and install dependencies (~300 MB) ──────────────
 info "Creating virtualenv and installing dependencies (this can take a few minutes)..."
 "$PYTHON_BIN" -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install --upgrade pip >/dev/null
 "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 
-# ── 6. Install the `omnisuite` launcher ────────────────────────────────────
+# ── 7. Install the `omnisuite` launcher ────────────────────────────────────
 mkdir -p "$BIN_DIR"
 cat > "$BIN_DIR/omnisuite" <<EOF
 #!/usr/bin/env bash
+export OMNISUITE_DATA_DIR="\${OMNISUITE_DATA_DIR:-$DATA_DIR}"
 # "omnisuite verify <file>" checks a file's receipt and watermark.
 if [ "\${1:-}" = "verify" ]; then
   exec "$VENV_DIR/bin/python" "$APP_DIR/receipts.py" "\$@"

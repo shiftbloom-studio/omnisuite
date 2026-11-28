@@ -31,6 +31,16 @@ class Omnisuite < Formula
 
       export PYTORCH_ENABLE_MPS_FALLBACK="${PYTORCH_ENABLE_MPS_FALLBACK:-1}"
 
+      # Voices, keys and receipts live outside the app folder, so an upgrade keeps them.
+      export OMNISUITE_DATA_DIR="${OMNISUITE_DATA_DIR:-#{var}/omnisuite/data}"
+      if [ ! -d "$OMNISUITE_DATA_DIR" ]; then
+        mkdir -p "$OMNISUITE_DATA_DIR"
+        # Earlier versions kept them inside it. Take along what is still there.
+        for old in "#{prefix.parent}"/*/libexec/data; do
+          if [ -d "$old" ]; then cp -R "$old/." "$OMNISUITE_DATA_DIR/"; fi
+        done
+      fi
+
       # "omnisuite verify <file>" checks a file's receipt and watermark.
       if [ "${1:-}" = "verify" ]; then
         exec "$VENV/bin/python" "$APP/receipts.py" "$@"
