@@ -5,3 +5,6 @@ torch==2.15.0
 torchaudio==2.11.1
 torchcodec==0.17.0
 omnivoice==0.2.1
+audioseal==0.2.1
+c2pa-python==0.39.0
+cryptography==50.0.2

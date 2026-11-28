@@ -37,10 +37,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --only-binary :all: --upgrade pip
-          python -m pip install --only-binary :all: -r requirements.txt
+          python -m pip install --only-binary :all: -r requirements-dev.txt
 
       - name: Bytecode compile core modules
-        run: python -m py_compile app.py runtime_config.py test_engine.py
+        run: python -m py_compile app.py receipts.py runtime_config.py test_engine.py
+
+      - name: Run tests
+        env:
+          # Also run the watermark tests that download the AudioSeal weights.
+          OMNISUITE_TEST_AUDIOSEAL: "1"
+        run: python -m pytest
 
       - name: Smoke-check app status payload
         run: |

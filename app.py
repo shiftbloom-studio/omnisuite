@@ -1,7 +1,6 @@
 """OmniSuite - Simple voice synthesis & cloning server."""
 
 import asyncio
-import io
 import json
 import os
 import shutil
@@ -10,11 +9,11 @@ import uuid
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+import receipts
 from runtime_config import (
     describe_torch_runtime,
     get_torch_runtime_config,
@@ -105,10 +104,14 @@ DEFAULT_VOICES = [
 
 # ── Engine ───────────────────────────────────────────────────────────────────
 
+MODEL_ID = "k2-fsa/OmniVoice"
+
 model = None
 model_status = "not_loaded"  # not_loaded | loading | ready | error
 model_error = None
 torch_runtime = get_torch_runtime_config()
+# Watermarks and signs every file that leaves generate_audio.
+marker = receipts.Marker(DATA_DIR)
 
 
 def load_model():
@@ -119,10 +122,12 @@ def load_model():
         from omnivoice import OmniVoice
 
         model = OmniVoice.from_pretrained(
-            "k2-fsa/OmniVoice",
+            MODEL_ID,
             device_map=torch_runtime.device_map,
             dtype=torch_runtime.dtype,
         )
+        # Not ready until files can be marked: no unmarked audio leaves the server.
+        marker.load()
         model_status = "ready"
         print(f"Model loaded ({describe_torch_runtime(torch_runtime)})")
     except Exception as e:
@@ -162,8 +167,8 @@ def generation_error(e: Exception) -> JSONResponse:
 
 def generate_audio(
     text: str, ref_audio_path: str, ref_text: str, speed: float = 1.0
-) -> bytes:
-    """Generate speech, return WAV bytes."""
+) -> tuple[bytes, dict]:
+    """Generate speech, return the marked WAV bytes and their receipt."""
     if model is None:
         raise RuntimeError("Model not loaded")
 
@@ -178,14 +183,10 @@ def generate_audio(
         preprocess_prompt=False,
     )
 
-    # Convert tensor to WAV bytes using soundfile (no ffmpeg needed)
-    audio_np = audio[0].cpu().numpy()
-    if audio_np.ndim == 2:
-        audio_np = audio_np.T  # soundfile expects (samples, channels)
-    buf = io.BytesIO()
-    sf.write(buf, audio_np, 24000, format="WAV", subtype="PCM_16")
-    buf.seek(0)
-    return buf.read()
+    # Watermark, encode as WAV (soundfile, no ffmpeg needed) and sign
+    # generate() returns one NumPy array per text.
+    audio_np = np.asarray(audio[0])
+    return marker.mark(audio_np, 24000, model=MODEL_ID, text=text)
 
 
 # ── FastAPI app ──────────────────────────────────────────────────────────────
@@ -255,14 +256,14 @@ async def generate(
         ref_text = profile.get("ref_text", "")
 
     try:
-        wav_bytes = await asyncio.to_thread(
+        wav_bytes, receipt = await asyncio.to_thread(
             generate_audio, text, str(ref_wav), ref_text, speed
         )
     except Exception as e:
         return generation_error(e)
 
-    # Save to generations
-    gen_id = str(uuid.uuid4())
+    # Save to generations, under the id of the receipt
+    gen_id = receipt["id"]
     gen_path = GENERATIONS_DIR / f"{gen_id}.wav"
     gen_path.write_bytes(wav_bytes)
 
@@ -289,7 +290,7 @@ async def clone_test(
     tmp_path = await asyncio.to_thread(write_temp_wav, content)
 
     try:
-        wav_bytes = await asyncio.to_thread(
+        wav_bytes, _receipt = await asyncio.to_thread(
             generate_audio, text, tmp_path, ref_text, speed
         )
         return Response(content=wav_bytes, media_type="audio/wav")

@@ -62,6 +62,10 @@ info "Creating virtualenv and installing dependencies (this can take a few minut
 mkdir -p "$BIN_DIR"
 cat > "$BIN_DIR/omnisuite" <<EOF
 #!/usr/bin/env bash
+# "omnisuite verify <file>" checks a file's receipt and watermark.
+if [ "\${1:-}" = "verify" ]; then
+  exec "$VENV_DIR/bin/python" "$APP_DIR/receipts.py" "\$@"
+fi
 exec "$VENV_DIR/bin/python" -m uvicorn app:app --app-dir "$APP_DIR" --host 127.0.0.1 --port 8000 "\$@"
 EOF
 chmod +x "$BIN_DIR/omnisuite"
