@@ -231,6 +231,59 @@
       margin-top: -12px;
       margin-bottom: 16px;
     }
+
+    .modes { display: flex; gap: 8px; margin-bottom: 20px; }
+
+    .mode {
+      padding: 8px 16px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      background: none;
+      border: 2px solid #222;
+      color: #666;
+      cursor: pointer;
+    }
+
+    .mode:hover { color: #e0e0e0; }
+    .mode.active { border-color: #FF3D00; color: #FF3D00; }
+
+    .note {
+      font-size: 13px;
+      line-height: 1.5;
+      color: #888;
+      margin-bottom: 20px;
+    }
+
+    .sentence {
+      padding: 20px;
+      background: #111;
+      border-left: 3px solid #FF3D00;
+      font-size: 20px;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+
+    .take-controls { display: flex; gap: 12px; align-items: center; }
+
+    .clock {
+      font-size: 13px;
+      color: #888;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .badge {
+      margin-left: 8px;
+      padding: 2px 6px;
+      border: 1px solid #22c55e;
+      color: #22c55e;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .badge.plain { border-color: #333; color: #666; }
   </style>
 </head>
 <body>
@@ -277,6 +330,57 @@
 
   <!-- ── Clone Voice ─────────────────────────────────────────── -->
   <div class="panel" id="panel-clone">
+    <div class="modes">
+      <button class="mode active" id="mode-read" onclick="cloneMode('read')">Read a sentence</button>
+      <button class="mode" id="mode-upload" onclick="cloneMode('upload')">Upload a clip</button>
+    </div>
+
+    <!-- Read a sentence aloud -->
+    <div id="clone-read">
+      <p class="note">OmniSuite makes up a sentence and you read it aloud. That recording becomes the voice. There is no transcript to type, and a clip taken from somewhere else will not pass.</p>
+
+      <div class="row">
+        <div class="field">
+          <label for="enrol-language">Language</label>
+          <select id="enrol-language">
+            <option value="en">English</option>
+            <option value="de">German</option>
+          </select>
+        </div>
+        <div style="margin-bottom:32px">
+          <button class="btn" id="enrol-start-btn" onclick="enrolStart()">Get a sentence</button>
+        </div>
+      </div>
+
+      <div id="enrol-take" style="display:none">
+        <div class="sentence" id="enrol-sentence"></div>
+        <p class="note">Read it in your normal voice, somewhere quiet. The sentence is good for five minutes.</p>
+
+        <div class="take-controls">
+          <button class="btn" id="enrol-record-btn" onclick="enrolRecord()">Record</button>
+          <span class="clock" id="enrol-clock"></span>
+        </div>
+
+        <div id="enrol-player" class="player" style="display:none">
+          <audio id="enrol-audio" controls></audio>
+        </div>
+
+        <div class="field" style="margin-top:20px">
+          <label for="enrol-name">Voice Name</label>
+          <input type="text" id="enrol-name" placeholder="My Voice" maxlength="100">
+        </div>
+
+        <p class="note">Whisper checks the words on this machine. The first check downloads it, about 1.6 GB.</p>
+        <button class="btn" id="enrol-finish-btn" disabled onclick="enrolFinish()">Save Voice</button>
+      </div>
+
+      <div id="enrol-error"></div>
+    </div>
+
+    <!-- Upload a clip -->
+    <div id="clone-upload" style="display:none">
+    <p class="note">A voice from a clip works the same. Its receipts say that the voice was not enrolled.</p>
+
     <div class="step-indicator">
       <div class="step-dot active" id="step-1">1</div>
       <div class="step-dot" id="step-2">2</div>
@@ -343,6 +447,7 @@
       </div>
 
       <div id="clone-save-error"></div>
+    </div>
     </div>
   </div>
 
@@ -419,12 +524,21 @@
     list.innerHTML = cloned.map(v => `
       <div class="voice-item">
         <div>
-          <span class="name">${v.name}</span>
-          <span class="meta"> &middot; ${v.language} &middot; ${v.description || 'cloned'}</span>
+          <span class="name">${esc(v.name)}</span>
+          <span class="meta"> &middot; ${esc(v.language)} &middot; ${esc(v.description || 'cloned')}</span>
+          ${v.enrolled
+            ? '<span class="badge" title="Enrolled by reading a sentence aloud">Read aloud</span>'
+            : '<span class="badge plain" title="Not enrolled. Receipts say so.">From a clip</span>'}
         </div>
         <button onclick="deleteVoice('${v.id}')">Delete</button>
       </div>
     `).join('');
+  }
+
+  function esc(text) {
+    const span = document.createElement('span');
+    span.textContent = text;
+    return span.innerHTML;
   }
 
   async function deleteVoice(id) {
@@ -546,6 +660,191 @@
       switchTab('voices');
     } catch (e) {
       document.getElementById('clone-save-error').innerHTML = `<div class="error">${e.message}</div>`;
+    }
+  }
+
+  // ── Enrol by reading ────────────────────────────────────────
+  // Runs on the audio thread and hands every block of samples to the page.
+  const TAP = `registerProcessor('tap', class extends AudioWorkletProcessor {
+    process(inputs) {
+      const channel = inputs[0][0];
+      if (channel) this.port.postMessage(channel.slice());
+      return true;
+    }
+  });`;
+
+  let enrol = null;     // the sentence being read: { id, maxSeconds }
+  let recorder = null;  // while recording: { stream, context, chunks, started, timer }
+  let take = null;      // the finished recording, a WAV blob
+
+  function cloneMode(mode) {
+    for (const name of ['read', 'upload']) {
+      document.getElementById(`clone-${name}`).style.display = name === mode ? 'block' : 'none';
+      document.getElementById(`mode-${name}`).classList.toggle('active', name === mode);
+    }
+  }
+
+  function showError(id, message) {
+    const box = document.getElementById(id);
+    box.textContent = '';
+    if (!message) return;
+    const div = document.createElement('div');
+    div.className = 'error';
+    div.textContent = message;
+    box.appendChild(div);
+  }
+
+  function enrolReset() {
+    if (recorder) enrolStop();
+    enrol = null;
+    take = null;
+    document.getElementById('enrol-take').style.display = 'none';
+    document.getElementById('enrol-player').style.display = 'none';
+    document.getElementById('enrol-clock').textContent = '';
+    document.getElementById('enrol-record-btn').textContent = 'Record';
+    document.getElementById('enrol-finish-btn').disabled = true;
+    document.getElementById('enrol-start-btn').textContent = 'Get a sentence';
+  }
+
+  async function enrolStart() {
+    showError('enrol-error', '');
+    enrolReset();
+    const form = new FormData();
+    form.append('language', document.getElementById('enrol-language').value);
+    try {
+      const r = await fetch('/api/enrol/start', { method: 'POST', body: form });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not get a sentence');
+      enrol = { id: d.challenge_id, maxSeconds: d.max_seconds };
+      document.getElementById('enrol-sentence').textContent = d.sentence;
+      document.getElementById('enrol-take').style.display = 'block';
+      document.getElementById('enrol-start-btn').textContent = 'Another sentence';
+    } catch (e) {
+      showError('enrol-error', e.message);
+    }
+  }
+
+  async function enrolRecord() {
+    if (recorder) return enrolStop();
+    showError('enrol-error', '');
+    // Browsers only hand out the microphone to pages on localhost or https.
+    if (!navigator.mediaDevices || !window.AudioWorkletNode) {
+      showError('enrol-error', 'Recording only works when OmniSuite is open on this computer, under localhost. You can upload a clip instead.');
+      return;
+    }
+    const btn = document.getElementById('enrol-record-btn');
+    btn.disabled = true;
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        // The voice as it is: no filters that make it sound like a phone call.
+        audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      const context = new AudioContext();
+      const url = URL.createObjectURL(new Blob([TAP], { type: 'application/javascript' }));
+      await context.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+      const tap = new AudioWorkletNode(context, 'tap', { numberOfOutputs: 0 });
+      const chunks = [];
+      tap.port.onmessage = e => chunks.push(e.data);
+      context.createMediaStreamSource(stream).connect(tap);
+      recorder = { stream, context, chunks, started: Date.now(), timer: setInterval(enrolTick, 200) };
+      take = null;
+      document.getElementById('enrol-player').style.display = 'none';
+      document.getElementById('enrol-finish-btn').disabled = true;
+      btn.textContent = 'Stop';
+      enrolTick();
+    } catch {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      showError('enrol-error', 'OmniSuite could not use the microphone. Allow it in the browser and try again.');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function enrolTick() {
+    const seconds = (Date.now() - recorder.started) / 1000;
+    document.getElementById('enrol-clock').textContent =
+      `0:${String(Math.floor(seconds)).padStart(2, '0')}`;
+    if (seconds >= enrol.maxSeconds) enrolStop();
+  }
+
+  function enrolStop() {
+    const { stream, context, chunks, timer } = recorder;
+    recorder = null;
+    clearInterval(timer);
+    stream.getTracks().forEach(track => track.stop());
+    context.close();
+    take = wavBlob(chunks, context.sampleRate);
+    document.getElementById('enrol-audio').src = URL.createObjectURL(take);
+    document.getElementById('enrol-player').style.display = 'block';
+    document.getElementById('enrol-record-btn').textContent = 'Record again';
+    document.getElementById('enrol-finish-btn').disabled = false;
+  }
+
+  // 16-bit mono WAV, which the server reads without any extra codec.
+  function wavBlob(chunks, sampleRate) {
+    const samples = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    const view = new DataView(new ArrayBuffer(44 + samples * 2));
+    const text = (at, word) => [...word].forEach((ch, i) => view.setUint8(at + i, ch.charCodeAt(0)));
+    text(0, 'RIFF');
+    view.setUint32(4, 36 + samples * 2, true);
+    text(8, 'WAVEfmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);            // PCM
+    view.setUint16(22, 1, true);            // one channel
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    text(36, 'data');
+    view.setUint32(40, samples * 2, true);
+    let at = 44;
+    for (const chunk of chunks) {
+      for (const sample of chunk) {
+        view.setInt16(at, Math.round(Math.max(-1, Math.min(1, sample)) * 0x7fff), true);
+        at += 2;
+      }
+    }
+    return new Blob([view], { type: 'audio/wav' });
+  }
+
+  async function enrolFinish() {
+    const name = document.getElementById('enrol-name').value.trim();
+    if (!enrol || !take) return;
+    if (!name) {
+      showError('enrol-error', 'Give the voice a name.');
+      return;
+    }
+    showError('enrol-error', '');
+    const btn = document.getElementById('enrol-finish-btn');
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+
+    const form = new FormData();
+    form.append('challenge_id', enrol.id);
+    form.append('name', name);
+    form.append('take', take, 'take.wav');
+
+    try {
+      const r = await fetch('/api/enrol/finish', { method: 'POST', body: form });
+      const d = await r.json();
+      if (!r.ok) {
+        let message = d.error || 'Could not save the voice';
+        if (d.heard !== undefined) message += ` Whisper heard: "${d.heard || 'nothing'}"`;
+        // The sentence is used up or too old: back to the start.
+        if (r.status === 410 || d.tries_left === 0) enrolReset();
+        throw new Error(message);
+      }
+      enrolReset();
+      document.getElementById('enrol-name').value = '';
+      loadVoices();
+      switchTab('voices');
+    } catch (e) {
+      showError('enrol-error', e.message);
+    } finally {
+      btn.textContent = 'Save Voice';
+      btn.disabled = !take;
     }
   }
 

@@ -1,10 +1,13 @@
 """OmniSuite - Simple voice synthesis & cloning server."""
 
 import asyncio
+import datetime
+import hashlib
 import json
 import os
 import shutil
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 
@@ -13,6 +16,7 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+import enrolment
 import receipts
 from runtime_config import (
     describe_torch_runtime,
@@ -112,6 +116,10 @@ model_error = None
 torch_runtime = get_torch_runtime_config()
 # Watermarks and signs every file that leaves generate_audio.
 marker = receipts.Marker(DATA_DIR)
+# Sentences handed out for enrolment that nobody has read back yet.
+challenges = enrolment.Challenges()
+asr_loaded = False
+asr_lock = threading.Lock()
 
 
 def load_model():
@@ -165,8 +173,39 @@ def generation_error(e: Exception) -> JSONResponse:
     )
 
 
+def transcribe(audio: np.ndarray, sample_rate: int) -> str:
+    """What Whisper hears in a recording. Loads Whisper the first time."""
+    global asr_loaded
+    with asr_lock:
+        if not asr_loaded:
+            model.load_asr_model()
+            asr_loaded = True
+        return model.transcribe((audio, sample_rate))
+
+
+def voice_claim(voice_dir: Path, profile: dict) -> dict:
+    """How a voice got here, for the receipt of a file that speaks with it.
+
+    "read-aloud" only while the reference clip is still the take that passed.
+    """
+    claim = {"id": profile.get("id", voice_dir.name), "enrolment": "none"}
+    enrolled = profile.get("enrolment")
+    if isinstance(enrolled, dict) and enrolled.get("method") == "read-aloud":
+        try:
+            clip = hashlib.sha256((voice_dir / "ref.wav").read_bytes()).hexdigest()
+        except OSError:
+            return claim
+        if clip == enrolled.get("ref_sha256"):
+            claim["enrolment"] = "read-aloud"
+    return claim
+
+
 def generate_audio(
-    text: str, ref_audio_path: str, ref_text: str, speed: float = 1.0
+    text: str,
+    ref_audio_path: str,
+    ref_text: str,
+    speed: float = 1.0,
+    voice: dict | None = None,
 ) -> tuple[bytes, dict]:
     """Generate speech, return the marked WAV bytes and their receipt."""
     if model is None:
@@ -178,7 +217,8 @@ def generate_audio(
     audio = model.generate(
         text=text,
         ref_audio=ref_audio_path,
-        ref_text=ref_text,
+        # Never None: generate() would then load Whisper on its own to transcribe the clip.
+        ref_text=ref_text or "",
         speed=speed,
         preprocess_prompt=False,
     )
@@ -186,7 +226,7 @@ def generate_audio(
     # Watermark, encode as WAV (soundfile, no ffmpeg needed) and sign
     # generate() returns one NumPy array per text.
     audio_np = np.asarray(audio[0])
-    return marker.mark(audio_np, 24000, model=MODEL_ID, text=text)
+    return marker.mark(audio_np, 24000, model=MODEL_ID, text=text, voice=voice)
 
 
 # ── FastAPI app ──────────────────────────────────────────────────────────────
@@ -224,6 +264,8 @@ async def list_voices():
         if profile_path.exists():
             try:
                 profile = json.loads(profile_path.read_text())
+                claim = voice_claim(voice_dir, profile)
+                profile["enrolled"] = claim["enrolment"] == "read-aloud"
                 voices.append(profile)
             except Exception:
                 pass
@@ -250,14 +292,19 @@ async def generate(
             status_code=404, content={"error": f"Voice '{voice_id}' not found"}
         )
 
-    ref_text = ""
+    profile = {}
     if profile_path.exists():
         profile = json.loads(profile_path.read_text())
-        ref_text = profile.get("ref_text", "")
+    ref_text = profile.get("ref_text", "")
 
     try:
         wav_bytes, receipt = await asyncio.to_thread(
-            generate_audio, text, str(ref_wav), ref_text, speed
+            generate_audio,
+            text,
+            str(ref_wav),
+            ref_text,
+            speed,
+            voice_claim(voice_dir, profile),
         )
     except Exception as e:
         return generation_error(e)
@@ -291,7 +338,7 @@ async def clone_test(
 
     try:
         wav_bytes, _receipt = await asyncio.to_thread(
-            generate_audio, text, tmp_path, ref_text, speed
+            generate_audio, text, tmp_path, ref_text, speed, {"enrolment": "none"}
         )
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:
@@ -330,6 +377,106 @@ async def clone_save(
     return profile
 
 
+@app.post("/api/enrol/start")
+async def enrol_start(language: str = Form("en")):
+    """Make up a sentence for someone to read aloud."""
+    if model_status != "ready":
+        return JSONResponse(status_code=503, content={"error": "Model not loaded"})
+    if language not in enrolment.LANGUAGES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Sentences are available in English and German."},
+        )
+    challenge = challenges.start(language)
+    return {
+        "challenge_id": challenge.id,
+        "sentence": challenge.sentence,
+        "language": challenge.language,
+        "expires_in": enrolment.CHALLENGE_SECONDS,
+        "max_seconds": enrolment.RECORD_SECONDS,
+    }
+
+
+@app.post("/api/enrol/finish")
+async def enrol_finish(
+    take: UploadFile = File(...),
+    challenge_id: str = Form(...),
+    name: str = Form(...),
+):
+    """Check a reading of the sentence. If the words fit, it becomes a voice."""
+    if model_status != "ready":
+        return JSONResponse(status_code=503, content={"error": "Model not loaded"})
+    name = name.strip()
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "Give the voice a name."})
+    if len(name) > enrolment.MAX_NAME_LENGTH:
+        return JSONResponse(status_code=400, content={"error": "That name is too long."})
+
+    try:
+        audio, sample_rate = enrolment.read_take(
+            await take.read(enrolment.MAX_TAKE_BYTES + 1)
+        )
+    except enrolment.TakeError as error:
+        return JSONResponse(status_code=400, content={"error": str(error)})
+
+    challenge = challenges.claim(challenge_id)
+    if challenge is None:
+        return JSONResponse(
+            status_code=410,
+            content={"error": "That sentence has expired. Get a new one."},
+        )
+    try:
+        heard = await asyncio.to_thread(transcribe, audio, sample_rate)
+    except Exception as e:
+        challenges.give_back(challenge, used_a_try=False)
+        print(f"Transcription failed: {e!r}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "The recording could not be checked. "
+                "See the server console for details."
+            },
+        )
+
+    fits, score = enrolment.matches(challenge.sentence, heard)
+    if not fits:
+        tries_left = challenges.give_back(challenge)
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "That did not match the sentence. Read it once more."
+                if tries_left
+                else "That did not match the sentence. Get a new one and try again.",
+                "heard": heard,
+                "tries_left": tries_left,
+            },
+        )
+
+    voice_id = str(uuid.uuid4())
+    voice_dir = VOICES_DIR / voice_id
+    voice_dir.mkdir(parents=True, exist_ok=True)
+    clip = enrolment.reference_wav(audio, sample_rate)
+    (voice_dir / "ref.wav").write_bytes(clip)
+    profile = {
+        "id": voice_id,
+        "name": name,
+        "type": "cloned",
+        "language": challenge.language,
+        "ref_text": challenge.sentence,
+        "description": f"Cloned voice: {name}",
+        "enrolment": {
+            "method": "read-aloud",
+            "at": datetime.datetime.now(datetime.timezone.utc).isoformat(
+                timespec="seconds"
+            ),
+            "score": score,
+            "ref_sha256": hashlib.sha256(clip).hexdigest(),
+        },
+    }
+    (voice_dir / "profile.json").write_text(json.dumps(profile, indent=2))
+    return {**profile, "enrolled": True}
+
+
 @app.delete("/api/voices/{voice_id}")
 async def delete_voice(voice_id: str):
     voice_dir = voice_path(voice_id)
@@ -353,6 +500,4 @@ async def get_voice_audio(voice_id: str):
 
 @app.on_event("startup")
 async def startup():
-    import threading
-
     threading.Thread(target=load_model, daemon=True).start()
